@@ -42,11 +42,19 @@ L'app crea un backup SQLite consistente dopo importazioni e modifiche, oltre al 
 
 Non inserire mai nel repository password, token OAuth, file `.env` o database. L'indirizzo Google non è scritto nel codice: l'accesso dipende dall'account collegato al client Drive o al mount configurato.
 
-## Pubblicazione su Render
+## App HTML gratuita su GitHub Pages
 
-Il file `render.yaml` crea un servizio Docker protetto da autenticazione HTTP e un disco persistente da 1 GB. Il piano con disco persistente può avere un costo mensile; verificare il prezzo mostrato da Render prima della conferma.
+La versione pubblica è una PWA statica contenuta in `docs/`. Non richiede server, carta di credito o abbonamento. Dopo il push su `main`, GitHub Actions la pubblica automaticamente su:
 
-Render genera automaticamente `APP_PASSWORD`. Dopo il deployment, recuperarla dalla sezione **Environment** del servizio e conservarla in un password manager. Il database pubblico non è incluso nell'immagine Docker e risiede esclusivamente sul volume `/data`.
+**https://madnash00.github.io/home-finance/**
+
+I dati sono archiviati con IndexedDB esclusivamente nel browser dell'utente e non vengono mai caricati nel repository. La pagina **Importazione e backup** permette di:
+
+- importare nuovi estratti conto Excel, ignorando i movimenti duplicati;
+- scaricare un backup JSON completo da conservare su Google Drive;
+- ripristinare il database su un altro browser o dispositivo.
+
+È importante conservare backup regolari: cancellando i dati del browser senza un backup si perde l'archivio locale. La sincronizzazione automatica multi-dispositivo con Drive richiederebbe in futuro un progetto Google OAuth; il backup manuale non richiede credenziali e resta gratuito.
 
 ## Architettura
 
