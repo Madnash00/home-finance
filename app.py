@@ -5,7 +5,14 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-ROOT=Path(__file__).parent; STATIC=ROOT/'static'; DATA_DIR=Path(os.getenv('DATA_DIR',ROOT/'data'));DATA_DIR.mkdir(parents=True,exist_ok=True);DB=Path(os.getenv('DATABASE_PATH',DATA_DIR/'contabilita.db'))
+ROOT=Path(__file__).parent
+env_file=ROOT/'.env'
+if env_file.exists():
+ for line in env_file.read_text(encoding='utf-8').splitlines():
+  line=line.strip()
+  if line and not line.startswith('#') and '=' in line:
+   key,value=line.split('=',1);os.environ.setdefault(key.strip(),value.strip())
+STATIC=ROOT/'static'; DATA_DIR=Path(os.getenv('DATA_DIR',ROOT/'data'));DATA_DIR.mkdir(parents=True,exist_ok=True);DB=Path(os.getenv('DATABASE_PATH',DATA_DIR/'contabilita.db'))
 LEGACY_DB=ROOT/'contabilita.db'
 if not DB.exists() and LEGACY_DB.exists() and DB!=LEGACY_DB and not os.getenv('DATA_DIR') and not os.getenv('DATABASE_PATH'):shutil.copy2(LEGACY_DB,DB)
 sys.path.insert(0,str(ROOT/'.vendor'))
