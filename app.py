@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import csv, hashlib, io, json, mimetypes, os, re, shutil, sqlite3, sys, tempfile, threading, unicodedata
+import base64, csv, hashlib, hmac, io, json, mimetypes, os, re, shutil, sqlite3, sys, tempfile, threading, unicodedata
 from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
@@ -313,11 +313,24 @@ def save_entity(entity,body):
  c.commit(); out=dict(c.execute(f'select * from {table} where id=?',(eid,)).fetchone()); c.close(); auto_backup(f'modifica {table}'); return out
 
 class Handler(SimpleHTTPRequestHandler):
+ def authenticated(self):
+  password=os.getenv('APP_PASSWORD','')
+  if not password:return True
+  header=self.headers.get('Authorization','')
+  if not header.startswith('Basic '):return False
+  try:user,supplied=base64.b64decode(header[6:]).decode().split(':',1)
+  except:return False
+  return hmac.compare_digest(user,os.getenv('APP_USERNAME','admin')) and hmac.compare_digest(supplied,password)
+ def require_auth(self):
+  if self.authenticated():return False
+  self.send_response(401);self.send_header('WWW-Authenticate','Basic realm="Casa Finance"');self.send_header('Cache-Control','no-store');self.end_headers();return True
  def send_json(self,obj,status=200):
-  b=json.dumps(obj,ensure_ascii=False,default=str).encode(); self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',len(b));self.end_headers();self.wfile.write(b)
+  b=json.dumps(obj,ensure_ascii=False,default=str).encode(); self.send_response(status); self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Content-Length',len(b));self.send_header('X-Content-Type-Options','nosniff');self.send_header('X-Frame-Options','DENY');self.send_header('Referrer-Policy','no-referrer');self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(b)
  def do_GET(self):
   p=urlparse(self.path); q=parse_qs(p.query)
   try:
+   if p.path=='/health':return self.send_json({'status':'ok'})
+   if self.require_auth():return
    if p.path=='/api/overview':return self.send_json(overview(int(q.get('year',[2026])[0])))
    if p.path=='/api/transactions':
     y=int(q.get('year',[2026])[0]); search=q.get('search',[''])[0]; limit=min(int(q.get('limit',[100])[0]),500); offset=int(q.get('offset',[0])[0]); like=f'%{search}%'
@@ -359,6 +372,7 @@ class Handler(SimpleHTTPRequestHandler):
   except Exception as e:return self.send_json({'error':str(e)},500)
  def do_POST(self):
   try:
+   if self.require_auth():return
    if self.path=='/api/import':
     n=int(self.headers.get('Content-Length',0)); data=self.rfile.read(n); tmp=ROOT/'uploaded.xlsx';tmp.write_bytes(data); out=import_xlsx(tmp);tmp.unlink();return self.send_json(out,201)
    if self.path in ('/api/planning','/api/loans','/api/categories'):

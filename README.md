@@ -42,6 +42,12 @@ L'app crea un backup SQLite consistente dopo importazioni e modifiche, oltre al 
 
 Non inserire mai nel repository password, token OAuth, file `.env` o database. L'indirizzo Google non è scritto nel codice: l'accesso dipende dall'account collegato al client Drive o al mount configurato.
 
+## Pubblicazione su Render
+
+Il file `render.yaml` crea un servizio Docker protetto da autenticazione HTTP e un disco persistente da 1 GB. Il piano con disco persistente può avere un costo mensile; verificare il prezzo mostrato da Render prima della conferma.
+
+Render genera automaticamente `APP_PASSWORD`. Dopo il deployment, recuperarla dalla sezione **Environment** del servizio e conservarla in un password manager. Il database pubblico non è incluso nell'immagine Docker e risiede esclusivamente sul volume `/data`.
+
 ## Architettura
 
 - Backend Python standard library con API JSON e server statico.
