@@ -7,6 +7,7 @@ uploaded.xlsx
 .venv/
 data/*.db
 data/*.db-*
+data/*.json
 contabilita.db
 source_analysis.json
 inspect_sources.py
