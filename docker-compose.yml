@@ -1,0 +1,13 @@
+services:
+  contabilita:
+    build: .
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8766
+      DATA_DIR: /data
+      DRIVE_BACKUP_DIR: /drive-backup
+    volumes:
+      - ./data:/data
+      - ${DRIVE_BACKUP_DIR:-./drive-backup}:/drive-backup
+    ports: ["8766:8766"]
+    restart: unless-stopped

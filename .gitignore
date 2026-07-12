@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.log
+.vendor/
+uploaded.xlsx
+.env
+.venv/
+data/*.db
+data/*.db-*
+contabilita.db
+source_analysis.json
+inspect_sources.py
+.DS_Store
