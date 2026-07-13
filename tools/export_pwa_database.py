@@ -60,8 +60,13 @@ def read_sheet(workbook, name):
         return [dict(zip(headers, [c.v for c in row])) for row in rows]
 
 
+def read_matrix(workbook, name):
+    with workbook.get_sheet(name) as sheet:
+        return [[c.v for c in row] for row in sheet.rows()]
+
+
 def rules_and_categories(rows):
-    grouped, rules = {}, []
+    categories, rules, seen_rules, seen_fallbacks = [], [], set(), set()
     for order, row in enumerate(rows, 1):
         year = integer(row.get("ANNO"))
         movement, group, name = text(row.get("MOVIMENTO")).upper(), text(row.get("CAUSALE")), text(row.get("DETTAGLIO"))
@@ -70,23 +75,22 @@ def rules_and_categories(rows):
         keyword = str(row.get("KEYWORD LIST") or "")
         if keyword.strip() == "-":
             keyword = ""
-        key = (year, movement, group, name)
-        item = grouped.setdefault(key, {"year": year, "movement": movement, "group": group, "name": name,
-                                        "keywords": [], "descriptions": [], "source": "DB ANALISI_Consolidato"})
-        if keyword and keyword.casefold() not in {k.casefold() for k in item["keywords"]}:
-            item["keywords"].append(keyword)
         description = text(row.get("DESCRIZIONE"))
-        if description and description not in item["descriptions"]:
-            item["descriptions"].append(description)
         if keyword:
+            rule_key = (year, movement, keyword.casefold().strip())
+            if rule_key in seen_rules:
+                continue
+            seen_rules.add(rule_key)
             rules.append({"year": year, "movement": movement, "category": name, "group": group,
                           "keyword": keyword, "description": description, "order": order})
-    categories = []
-    for i, item in enumerate(grouped.values(), 1):
-        item["id"] = i
-        item["keywords"] = "; ".join(item["keywords"])
-        item["description"] = "; ".join(item.pop("descriptions"))
-        categories.append(item)
+        else:
+            fallback_key = (year, movement, group, name)
+            if fallback_key in seen_fallbacks:
+                continue
+            seen_fallbacks.add(fallback_key)
+        categories.append({"id": len(categories) + 1, "year": year, "movement": movement,
+                           "group": group, "name": name, "keywords": keyword,
+                           "description": description, "source": "DB ANALISI_Consolidato"})
     base_2018 = [c.copy() for c in categories if c["year"] == 2018]
     for year in (2016, 2017):
         for base in base_2018:
@@ -101,7 +105,7 @@ def planning(rows, categories):
         movement, kind, group, name = text(row.get("MOVIMENTO")).upper(), text(row.get("TIPO MOVIMENTO")), text(row.get("GRUPPO")), text(row.get("CAUSALE"))
         if movement not in {"ENTRATE", "USCITE"} or not name:
             continue
-        plans.append({"id": len(plans) + 1, "year": integer(row.get("YEAR")) or 2026, "movement": movement,
+        plans.append({"id": len(plans) + 1, "scope": "analysis", "year": integer(row.get("YEAR")) or 2026, "movement": movement,
                       "type": kind, "group": group, "category": name, "budget": number(row.get("BDGT YEAR")),
                       "forecast": number(row.get("FRCST YEAR")), "budget_month": number(row.get("BDGT MONTH")),
                       "forecast_month": number(row.get("FRCST MONTH")), "actual_source": number(row.get("€ YEAR")),
@@ -116,6 +120,57 @@ def planning(rows, categories):
     return plans
 
 
+def management_planning(matrix, start_id, year=2026):
+    result = []
+
+    def add_rows(start, end, movement):
+        sign = -1 if movement == "USCITE" else 1
+        for row in matrix[start - 1:end]:
+            values = list(row) + [None] * max(0, 25 - len(row))
+            description, group, analysis_category = text(values[20]), text(values[21]), text(values[22])
+            if not description or description.casefold() in {"descrizione", "totale", "pagamenti contanti  o pos"}:
+                continue
+            result.append({"id": start_id + len(result), "scope": "management", "year": year,
+                           "movement": movement, "group": group, "category": description,
+                           "analysis_category": analysis_category, "budget": sign * abs(number(values[23])),
+                           "forecast": sign * abs(number(values[24])), "actual_source": None,
+                           "ly_source": None, "lly_source": None, "source": "DB ANALISI_Forecast dettaglio"})
+
+    add_rows(3, 12, "ENTRATE")
+    add_rows(17, 44, "USCITE")
+    return result
+
+
+def reconcile_plans(plans, transactions):
+    totals = defaultdict(float)
+    for transaction in transactions:
+        if transaction.get("is_opening_balance"):
+            continue
+        key = (transaction["year"], transaction["movement"], transaction["group"], transaction["category"])
+        totals[key] += transaction["amount"]
+    for plan in plans:
+        if plan.get("scope") != "analysis":
+            continue
+        base = (plan["movement"], plan["group"], plan["category"])
+        for source_key, adjustment_key, year in (
+            ("actual_source", "actual_adjustment", plan["year"]),
+            ("ly_source", "ly_adjustment", plan["year"] - 1),
+            ("lly_source", "lly_adjustment", plan["year"] - 2),
+        ):
+            calculated = round(totals[(year, *base)], 2)
+            plan[adjustment_key] = round(plan[source_key] - calculated, 2)
+
+
+def keyword_matches(haystack, keyword):
+    raw = keyword.casefold()
+    needle = raw.strip()
+    if not needle:
+        return False
+    if raw != needle:
+        return raw in f" {haystack} "
+    return needle in haystack
+
+
 def classify(combined, explicit, year, movement, rules):
     candidates = [r for r in rules if r["year"] == year and r["movement"] == movement]
     if not candidates:
@@ -126,7 +181,7 @@ def classify(combined, explicit, year, movement, rules):
         if exact:
             return exact[0]["category"], exact[0]["group"], "voce_excel"
     haystack = combined.casefold()
-    matches = [r for r in candidates if r["keyword"].casefold() in haystack]
+    matches = [r for r in candidates if keyword_matches(haystack, r["keyword"])]
     if matches:
         best = max(matches, key=lambda r: (len(r["keyword"].strip()), -r["order"]))
         return best["category"], best["group"], "keyword"
@@ -200,17 +255,21 @@ def main():
         movement_rows = read_sheet(workbook, "DB MOVIMENTI")
         consolidated_rows = read_sheet(workbook, "DB ANALISI_Consolidato")
         forecast_rows = read_sheet(workbook, "DB ANALISI_Forecast")
+        forecast_matrix = read_matrix(workbook, "DB ANALISI_Forecast")
         loan_rows = read_sheet(workbook, "FINANZIAMENTI")
         current_balances = read_sheet(workbook, "SALDO")
         monthly_balances = read_sheet(workbook, "CONTO CORRENTE")
     categories, rules = rules_and_categories(consolidated_rows)
-    plans = planning(forecast_rows, categories)
+    analysis_plans = planning(forecast_rows, categories)
+    management_plans = management_planning(forecast_matrix, len(analysis_plans) + 1)
     opening_balance = 73329.89
     txs, balance_differences = movements(movement_rows, rules, opening_balance)
+    reconcile_plans(analysis_plans, txs)
+    plans = analysis_plans + management_plans
     account_balances = defaultdict(float)
     for transaction in txs:
         account_balances[transaction["bank"]] += transaction["amount"]
-    payload = {"format": "casa-finance-backup", "version": 2, "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+    payload = {"format": "casa-finance-backup", "version": 3, "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
                "source": {"file": args.source.name, "sheets": ["DB MOVIMENTI", "DB ANALISI_Consolidato",
                            "DB ANALISI_Forecast", "FINANZIAMENTI", "SALDO", "CONTO CORRENTE"]},
                "data": {"movements": txs, "categories": categories, "plans": plans, "loans": loans(loan_rows),
@@ -220,11 +279,14 @@ def main():
                                   "source_balance_difference_count": len(balance_differences),
                                   "balance_note": "Il saldo progressivo app è complessivo; SALDO Excel è progressivo per conto."},
                                  {"id": 2, "key": "source_balances", "current": current_balances,
-                                  "monthly": monthly_balances}]}}
+                                  "monthly": monthly_balances},
+                                 {"id": 3, "key": "classification-rules-v2",
+                                  "completedAt": dt.datetime.now(dt.timezone.utc).isoformat()}]}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     stats = {"output": str(args.output), "movements": len(txs), "years": dict(sorted(Counter(t["year"] for t in txs).items())),
-             "categories": len(categories), "plans": len(plans), "loans": len(payload["data"]["loans"]),
+             "categories": len(categories), "plans": len(plans), "analysis_plans": len(analysis_plans),
+             "management_plans": len(management_plans), "loans": len(payload["data"]["loans"]),
              "opening_balance": opening_balance, "closing_balance": txs[-1]["balance"],
              "source_balance_differences": len(balance_differences)}
     print(json.dumps(stats, ensure_ascii=False))
