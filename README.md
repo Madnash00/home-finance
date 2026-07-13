@@ -56,7 +56,7 @@ I dati sono archiviati con IndexedDB esclusivamente nel browser dell'utente e no
 
 È importante conservare backup regolari: cancellando i dati del browser senza un backup si perde l'archivio locale. La sincronizzazione automatica multi-dispositivo con Drive richiederebbe in futuro un progetto Google OAuth; il backup manuale non richiede credenziali e resta gratuito.
 
-Per inizializzare l'archivio storico, eseguire `tools/export_pwa_database.py` sul file Contabilità e importare il JSON prodotto dalla pagina **Importazione e backup**. Il JSON generato è privato ed escluso automaticamente da Git.
+Per inizializzare l'archivio storico completo, eseguire `tools/export_pwa_database.py` sul file Contabilità e importare il JSON prodotto dalla pagina **Importazione e backup**. L'estrazione comprende DB MOVIMENTI, categorie e keyword, Budget, Forecast, finanziamenti, saldi e metadati di riconciliazione. Il JSON generato è privato ed escluso automaticamente da Git.
 
 ## Architettura
 
