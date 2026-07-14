@@ -280,7 +280,7 @@ def main():
                                   "balance_note": "Il saldo progressivo app è complessivo; SALDO Excel è progressivo per conto."},
                                  {"id": 2, "key": "source_balances", "current": current_balances,
                                   "monthly": monthly_balances},
-                                 {"id": 3, "key": "classification-rules-v3",
+                                 {"id": 3, "key": "classification-rules-v4",
                                   "completedAt": dt.datetime.now(dt.timezone.utc).isoformat()}]}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
