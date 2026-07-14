@@ -77,7 +77,7 @@ def rules_and_categories(rows):
             keyword = ""
         description = text(row.get("DESCRIZIONE"))
         if keyword:
-            rule_key = (year, movement, keyword.casefold().strip())
+            rule_key = (year, movement, keyword.casefold())
             if rule_key in seen_rules:
                 continue
             seen_rules.add(rule_key)
@@ -175,9 +175,9 @@ def classify(combined, explicit, year, movement, rules):
     candidates = [r for r in rules if r["year"] == year and r["movement"] == movement]
     if not candidates:
         candidates = [r for r in rules if r["year"] == 2018 and r["movement"] == movement]
-    explicit_norm = explicit.casefold().strip("* ")
+    explicit_norm = explicit.casefold().strip("*")
     if explicit_norm:
-        exact = [r for r in candidates if r["keyword"].casefold().strip("* ") == explicit_norm]
+        exact = [r for r in candidates if r["keyword"].casefold().strip("*") == explicit_norm]
         if exact:
             return exact[0]["category"], exact[0]["group"], "voce_excel"
     haystack = combined.casefold()
@@ -280,7 +280,7 @@ def main():
                                   "balance_note": "Il saldo progressivo app è complessivo; SALDO Excel è progressivo per conto."},
                                  {"id": 2, "key": "source_balances", "current": current_balances,
                                   "monthly": monthly_balances},
-                                 {"id": 3, "key": "classification-rules-v2",
+                                 {"id": 3, "key": "classification-rules-v3",
                                   "completedAt": dt.datetime.now(dt.timezone.utc).isoformat()}]}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
