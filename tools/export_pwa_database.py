@@ -143,21 +143,30 @@ def management_planning(matrix, start_id, year=2026):
 
 def reconcile_plans(plans, transactions):
     totals = defaultdict(float)
+    cash_expenses, withdrawals = defaultdict(float), defaultdict(float)
     for transaction in transactions:
         if transaction.get("is_opening_balance"):
             continue
         key = (transaction["year"], transaction["movement"], transaction["group"], transaction["category"])
         totals[key] += transaction["amount"]
+        if text(transaction.get("bank")).upper() == "CASH" and transaction["amount"] < 0:
+            cash_expenses[transaction["year"]] += abs(transaction["amount"])
+        if transaction["category"] == "PRELEVAMENTI" and transaction["amount"] < 0:
+            withdrawals[transaction["year"]] += abs(transaction["amount"])
     for plan in plans:
         if plan.get("scope") != "analysis":
             continue
         base = (plan["movement"], plan["group"], plan["category"])
+        is_cash_plan = base == ("ENTRATE", "ENTRATE EXTRA", "ENTRATE VARIE")
+        plan["cash_logic_v5"] = True
         for source_key, adjustment_key, year in (
             ("actual_source", "actual_adjustment", plan["year"]),
             ("ly_source", "ly_adjustment", plan["year"] - 1),
             ("lly_source", "lly_adjustment", plan["year"] - 2),
         ):
             calculated = round(totals[(year, *base)], 2)
+            if is_cash_plan:
+                calculated = round(calculated + cash_expenses[year] - withdrawals[year], 2)
             plan[adjustment_key] = round(plan[source_key] - calculated, 2)
 
 
@@ -269,7 +278,7 @@ def main():
     account_balances = defaultdict(float)
     for transaction in txs:
         account_balances[transaction["bank"]] += transaction["amount"]
-    payload = {"format": "casa-finance-backup", "version": 3, "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+    payload = {"format": "casa-finance-backup", "version": 5, "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
                "source": {"file": args.source.name, "sheets": ["DB MOVIMENTI", "DB ANALISI_Consolidato",
                            "DB ANALISI_Forecast", "FINANZIAMENTI", "SALDO", "CONTO CORRENTE"]},
                "data": {"movements": txs, "categories": categories, "plans": plans, "loans": loans(loan_rows),
@@ -280,7 +289,7 @@ def main():
                                   "balance_note": "Il saldo progressivo app è complessivo; SALDO Excel è progressivo per conto."},
                                  {"id": 2, "key": "source_balances", "current": current_balances,
                                   "monthly": monthly_balances},
-                                 {"id": 3, "key": "classification-rules-v4",
+                                 {"id": 3, "key": "classification-rules-v5",
                                   "completedAt": dt.datetime.now(dt.timezone.utc).isoformat()}]}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
