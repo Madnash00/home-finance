@@ -11,6 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".vendor"))
 from pyxlsb import open_workbook  # noqa: E402
+try:
+    from openpyxl import load_workbook  # noqa: E402
+except ImportError:
+    load_workbook = None
 
 
 def excel_date(value):
@@ -63,6 +67,22 @@ def read_sheet(workbook, name):
 def read_matrix(workbook, name):
     with workbook.get_sheet(name) as sheet:
         return [[c.v for c in row] for row in sheet.rows()]
+
+
+def read_external_sheet(path, name):
+    if path.suffix.lower() == ".xlsb":
+        with open_workbook(str(path)) as workbook:
+            return read_sheet(workbook, name)
+    if load_workbook is None:
+        raise RuntimeError("openpyxl è necessario per leggere gli archivi .xlsx")
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        sheet = workbook[name]
+        rows = sheet.iter_rows(values_only=True)
+        headers = [text(value) for value in next(rows)]
+        return [dict(zip(headers, row)) for row in rows]
+    finally:
+        workbook.close()
 
 
 def rules_and_categories(rows):
@@ -120,6 +140,48 @@ def planning(rows, categories):
     return plans
 
 
+def historical_planning(directory, categories, start_id):
+    plans, existing_categories = [], {(c["year"], c["movement"], c["group"], c["name"]) for c in categories}
+    for year in range(2017, 2026):
+        matches = sorted(directory.glob(f"{year}*Contabilità.*"))
+        if not matches:
+            matches = sorted(directory.glob(f"{year}*Contabilita*.*"))
+        if not matches:
+            continue
+        for row in read_external_sheet(matches[0], "DB ANALISI_Forecast"):
+            movement = text(row.get("MOVIMENTO")).upper()
+            group, name = text(row.get("GRUPPO")), text(row.get("CAUSALE"))
+            if movement not in {"ENTRATE", "USCITE"} or not group or not name:
+                continue
+            if year == 2017:
+                budget = forecast = number(row.get("ANNUALE"))
+                budget_month = forecast_month = number(row.get("MENSILE"))
+                actual_source = number(row.get("CONSOLIDATO"))
+            elif year == 2018:
+                budget, forecast = number(row.get("ANNUALE 1")), number(row.get("ANNUALE"))
+                budget_month, forecast_month = number(row.get("MENSILE 1")), number(row.get("MENSILE"))
+                actual_source = number(row.get("CONSOLIDATO"))
+            else:
+                budget, forecast = number(row.get("BDGT YEAR")), number(row.get("FRCST YEAR"))
+                budget_month, forecast_month = number(row.get("BDGT MONTH")), number(row.get("FRCST MONTH"))
+                actual_source = number(row.get("€ YEAR"))
+            plans.append({"id": start_id + len(plans), "scope": "analysis", "year": year,
+                          "movement": movement, "type": text(row.get("TIPO MOVIMENTO")),
+                          "group": group, "category": name, "budget": budget, "forecast": forecast,
+                          "budget_month": budget_month, "forecast_month": forecast_month,
+                          "actual_source": actual_source,
+                          "ly_source": number(row.get("€ LY")) if row.get("€ LY") is not None else None,
+                          "lly_source": number(row.get("€ LLY")) if row.get("€ LLY") is not None else None,
+                          "source": f"{matches[0].name} · DB ANALISI_Forecast"})
+            key = (year, movement, group, name)
+            if key not in existing_categories:
+                categories.append({"id": len(categories) + 1, "year": year, "movement": movement,
+                                   "group": group, "name": name, "keywords": "", "description": "",
+                                   "source": f"{matches[0].name} · DB ANALISI_Forecast"})
+                existing_categories.add(key)
+    return plans
+
+
 def management_planning(matrix, start_id, year=2026):
     result = []
 
@@ -164,6 +226,9 @@ def reconcile_plans(plans, transactions):
             ("ly_source", "ly_adjustment", plan["year"] - 1),
             ("lly_source", "lly_adjustment", plan["year"] - 2),
         ):
+            if plan.get(source_key) is None:
+                plan[adjustment_key] = 0.0
+                continue
             calculated = round(totals[(year, *base)], 2)
             if is_cash_plan:
                 calculated = round(calculated + cash_expenses[year] - withdrawals[year], 2)
@@ -270,6 +335,8 @@ def main():
         monthly_balances = read_sheet(workbook, "CONTO CORRENTE")
     categories, rules = rules_and_categories(consolidated_rows)
     analysis_plans = planning(forecast_rows, categories)
+    history_dir = args.source.parent / "Consuntivi annuali"
+    analysis_plans += historical_planning(history_dir, categories, len(analysis_plans) + 1)
     management_plans = management_planning(forecast_matrix, len(analysis_plans) + 1)
     opening_balance = 73329.89
     txs, balance_differences = movements(movement_rows, rules, opening_balance)
@@ -278,7 +345,7 @@ def main():
     account_balances = defaultdict(float)
     for transaction in txs:
         account_balances[transaction["bank"]] += transaction["amount"]
-    payload = {"format": "casa-finance-backup", "version": 5, "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+    payload = {"format": "casa-finance-backup", "version": 6, "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
                "source": {"file": args.source.name, "sheets": ["DB MOVIMENTI", "DB ANALISI_Consolidato",
                            "DB ANALISI_Forecast", "FINANZIAMENTI", "SALDO", "CONTO CORRENTE"]},
                "data": {"movements": txs, "categories": categories, "plans": plans, "loans": loans(loan_rows),
