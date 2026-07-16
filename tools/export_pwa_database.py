@@ -360,11 +360,18 @@ def main():
                                   "completedAt": dt.datetime.now(dt.timezone.utc).isoformat()}]}}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    historical_update = {"format": "casa-finance-plan-update", "version": 1,
+                         "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+                         "data": {"plans": [{k: v for k, v in plan.items() if k != "id"}
+                                             for plan in analysis_plans if 2017 <= plan["year"] <= 2025]}}
+    update_path = args.output.with_name("piani-storici-2017-2025.json")
+    update_path.write_text(json.dumps(historical_update, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     stats = {"output": str(args.output), "movements": len(txs), "years": dict(sorted(Counter(t["year"] for t in txs).items())),
              "categories": len(categories), "plans": len(plans), "analysis_plans": len(analysis_plans),
              "management_plans": len(management_plans), "loans": len(payload["data"]["loans"]),
              "opening_balance": opening_balance, "closing_balance": txs[-1]["balance"],
              "source_balance_differences": len(balance_differences)}
+    stats["historical_update"] = str(update_path)
     print(json.dumps(stats, ensure_ascii=False))
 
 
