@@ -130,6 +130,7 @@ def planning(rows, categories):
                       "forecast": number(row.get("FRCST YEAR")), "budget_month": number(row.get("BDGT MONTH")),
                       "forecast_month": number(row.get("FRCST MONTH")), "actual_source": number(row.get("€ YEAR")),
                       "ly_source": number(row.get("€ LY")), "lly_source": number(row.get("€ LLY")),
+                      "report_excluded": name.upper() == "USCITE STRAORDINARIE",
                       "source": "DB ANALISI_Forecast"})
         key = (2026, movement, group, name)
         if key not in existing:
@@ -172,6 +173,7 @@ def historical_planning(directory, categories, start_id):
                           "actual_source": actual_source,
                           "ly_source": number(row.get("€ LY")) if row.get("€ LY") is not None else None,
                           "lly_source": number(row.get("€ LLY")) if row.get("€ LLY") is not None else None,
+                          "report_excluded": name.upper() == "USCITE STRAORDINARIE",
                           "source": f"{matches[0].name} · DB ANALISI_Forecast"})
             key = (year, movement, group, name)
             if key not in existing_categories:
@@ -207,7 +209,7 @@ def reconcile_plans(plans, transactions):
     totals = defaultdict(float)
     cash_expenses, withdrawals = defaultdict(float), defaultdict(float)
     for transaction in transactions:
-        if transaction.get("is_opening_balance"):
+        if transaction.get("is_opening_balance") or transaction.get("excluded"):
             continue
         key = (transaction["year"], transaction["movement"], transaction["group"], transaction["category"])
         totals[key] += transaction["amount"]
@@ -297,7 +299,7 @@ def movements(rows, rules, opening_balance):
                 "currency": "EUR", "source_category": explicit, "category": category, "group": group,
                 "balance": running, "source_balance": source_balance, "month": month, "year": year,
                 "movement": movement, "various_expense_check": text(row.get("CHECK SPESE VARIE")),
-                "note": text(row.get("NOTE CHECK")), "excluded": False, "is_opening_balance": is_opening,
+                "note": text(row.get("NOTE CHECK")), "excluded": category == "USCITE STRAORDINARIE", "is_opening_balance": is_opening,
                 "classification_mode": mode}
         base = base_fingerprint(item)
         fingerprints[base] += 1
