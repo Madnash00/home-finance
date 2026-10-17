@@ -67,3 +67,32 @@ body.dark .chart-grid{stroke:#35475b}body.dark .chart-axis{stroke:#6b829d}
 @media(max-width:1250px){.overview-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.kpi-projection{grid-column:span 2}}
 @media(max-width:900px){.overview-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi-projection{grid-column:span 2}}
 @media(max-width:520px){.overview-kpis{grid-template-columns:1fr}.kpi-projection{grid-column:auto}.chart-caption{gap:8px}.modal-box{padding:16px}}
+
+/* Overview standard cards + Finanziamenti compact table (v35) */
+.overview-kpis .kpi-basic{background:var(--card);border:1px solid var(--line);box-shadow:0 2px 7px rgba(19,49,81,.04);display:flex;flex-direction:column}
+.overview-kpis .kpi-basic small{font-size:11px;line-height:1.4;letter-spacing:.01em;font-weight:650;display:block}
+.overview-kpis .kpi-basic strong{margin-top:9px;font-weight:780;letter-spacing:-.03em;line-height:1.1}
+.overview-kpis .kpi-details{display:grid;gap:9px;margin-top:auto;padding-top:17px}
+.overview-kpis .kpi-detail-row{display:flex;align-items:baseline;justify-content:space-between;gap:6px;min-width:0;border-top:1px solid var(--line);padding-top:8px;line-height:1.2}
+.overview-kpis .kpi-detail-row + .kpi-detail-row{border-top:0;padding-top:0}
+.overview-kpis .kpi-detail-row span{color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.overview-kpis .kpi-detail-row b{font-weight:740;font-size:10.5px;white-space:nowrap;max-width:57%;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.loans-page{min-width:0}
+#loan-table{min-width:0;width:100%}
+#loan-table .tablewrap{overflow:visible;max-height:none;width:100%;border-radius:10px}
+#loan-table table{width:100%;table-layout:fixed;white-space:nowrap;font-size:11px}
+#loan-table th,#loan-table td{padding:5px 6px;height:31px;line-height:1.2;overflow:hidden;text-overflow:ellipsis}
+#loan-table th{font-size:10px;letter-spacing:0;vertical-align:middle;white-space:normal}
+#loan-table th:nth-child(1){width:22%}
+#loan-table th:nth-child(2){width:15%}
+#loan-table th:nth-child(3),#loan-table th:nth-child(4){width:10%}
+#loan-table th:nth-child(5),#loan-table th:nth-child(6){width:9%}
+#loan-table th:nth-child(7){width:10%}
+#loan-table th:nth-child(8){width:7%}
+#loan-table th:nth-child(9){width:8%}
+#loan-table td span[data-full-text]{display:inline-block;vertical-align:middle;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+#loan-table .loan-edit-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;max-width:100%;padding:5px 6px;font-size:10.5px;line-height:1;border-radius:6px}
+#loan-table .loan-note-indicator{display:inline-block;width:5px;height:5px;flex:none;background:var(--blue);border-radius:50%}
+.loans-page .toolbar{margin-bottom:12px}
+body.dark .overview-kpis .kpi-basic{box-shadow:0 2px 7px rgba(0,0,0,.14)}
+@media(max-width:1100px){#loan-table .tablewrap{overflow-x:auto;overflow-y:visible}#loan-table table{min-width:840px}}
