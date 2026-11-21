@@ -2,7 +2,7 @@ const DB='casa-finance',VER=1,stores=['movements','categories','plans','loans','
 const fmtCents=n=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:2}).format(Math.abs(+n||0)),moneyCents=n=>(+n<0?'-':'')+fmtCents(n),amountCents=n=>`<span class="${+n<0?'bad':+n?'good':''}">${moneyCents(n)}</span>`;
 const navs={DATABASE:[['backup','Importazione e Backup'],['movimenti','Movimenti']],ANALISI:[['saldo','Overview'],['planning','Actual vs FRCST'],['finanziamenti','Dettaglio Finanziamenti']],GESTIONE:[['categorie','Regole e Categorie'],['budget','Budget & Forecast']]};
 const logicNav=['logiche','Logiche'];
-function openDB(){return new Promise((ok,no)=>{let r=indexedDB.open(DB,VER);r.onupgradeneeded=()=>stores.forEach(s=>{if(!r.result.objectStoreNames.contains(s))r.result.createObjectStore(s,{keyPath:'id',autoIncrement:true})});r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function all(s){return new Promise((ok,no)=>{let r=db.transaction(s).objectStore(s).getAll();r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function put(s,v){return new Promise((ok,no)=>{let r=db.transaction(s,'readwrite').objectStore(s).put(v);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function del(s,id){return new Promise((ok,no)=>{let r=db.transaction(s,'readwrite').objectStore(s).delete(id);r.onsuccess=ok;r.onerror=()=>no(r.error)})}function clear(s){return new Promise((ok,no)=>{let r=db.transaction(s,'readwrite').objectStore(s).clear();r.onsuccess=ok;r.onerror=()=>no(r.error)})}
+function openDB(){return new Promise((ok,no)=>{let r=indexedDB.open(DB,VER);r.onupgradeneeded=()=>stores.forEach(s=>{if(!r.result.objectStoreNames.contains(s))r.result.createObjectStore(s,{keyPath:'id',autoIncrement:true})});r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function all(s){return new Promise((ok,no)=>{let r=db.transaction(s).objectStore(s).getAll();r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function put(s,v){return new Promise((ok,no)=>{let r=db.transaction(s,'readwrite').objectStore(s).put(v);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function del(s,id){return new Promise((ok,no)=>{let r=db.transaction(s,'readwrite').objectStore(s).delete(id);r.onsuccess=ok;r.onerror=()=>no(r.error)})}
 function amount(n,type='',movement=''){n=+n||0;let bad=n<0;if(type==='variance')bad=movement==='USCITE'?n<0:n>0;return `<span class="${bad?'bad':n?'good':''}">${type==='variance'&&n>0?'+':''}${money(n)}</span>`}function toast(s){$('#toast').textContent=s;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),2500)}function years(rows){let ys=new Set([new Date().getFullYear(),2026,2025,2024]);rows.forEach(x=>x.year&&ys.add(+x.year));return [...ys].sort((a,b)=>b-a)}
 function signedVariance(n){n=+n||0;return `<span class="${n<0?'bad':n>0?'good':''}">${n>0?'+':''}${money(n)}</span>`}
 function frameDebounce(fn){let frame;return(...args)=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>fn(...args))}}
@@ -13,6 +13,13 @@ function enhanceSelects(root=document){
   document.querySelectorAll('.smart-select-menu').forEach(menu=>{if(!menu._smartWrapper?.isConnected)menu.remove()});
   if(!document._smartSelectCloseBound){document.addEventListener('pointerdown',event=>{if(!event.target.closest('.smart-select')&&!event.target.closest('.smart-select-menu'))closeSmartSelects()});window.addEventListener('resize',()=>closeSmartSelects());document._smartSelectCloseBound=true}
   root.querySelectorAll('select').forEach(select=>{
+    if(select.id==='year'&&mobileLayout.matches){
+      select.classList.remove('smart-select-source');
+      select._smartMenu?.remove();
+      select._smartWrapper?.remove();
+      if(select._smartSyncHandler)select.removeEventListener('change',select._smartSyncHandler);
+      return;
+    }
     const selected=select.value,seen=new Set;
     [...select.options].forEach(option=>{const key=normalizedText(option.value||option.textContent);if(seen.has(key))option.remove();else seen.add(key)});
     if([...select.options].some(option=>option.value===selected))select.value=selected;
@@ -67,7 +74,64 @@ async function ensureMovementActualMigration(){const meta=await all('meta');if(m
 async function recalculateAndRender(year){let latest=await all('categories');await normalizeCategories(latest);latest=await all('categories');const plansUpdated=await synchronizeAnalysisPlans(latest),result=await reclassifyYear(year,latest);await refreshYears();await render();return{plansUpdated,...result}}
 function table(id,cols,rows){let st=sort[id],v=[...rows];if(st)v.sort((a,b)=>((a[st.k]??'')<(b[st.k]??'')?-1:(a[st.k]??'')>(b[st.k]??'')?1:0)*st.d);return `<div class="tablewrap"><table data-table="${id}"><thead><tr>${cols.map(c=>`<th data-k="${c.k}" class="${c.num?'num ':''}${c.head||''}">${c.l} ${st?.k===c.k?(st.d>0?'▲':'▼'):'↕'}</th>`).join('')}</tr></thead><tbody>${v.map(r=>`<tr>${cols.map(c=>`<td class="${c.num?'num ':''}${c.cls||''}">${c.r?c.r(r[c.k],r):esc(r[c.k]??'–')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`}function bindTable(id,draw){document.querySelectorAll(`[data-table="${id}"] th`).forEach(h=>h.onclick=()=>{let o=sort[id];sort[id]={k:h.dataset.k,d:o?.k===h.dataset.k?-o.d:1};draw()})}
 function modal(title,body){$('#modal').innerHTML=`<div class="modal-bg"><div class="modal-box"><div class="section-head"><h2>${title}</h2><button data-close>Chiudi</button></div>${body}</div></div>`;$('[data-close]').onclick=closeModal;$('.modal-bg').onclick=e=>e.target===e.currentTarget&&closeModal();const save=$('.modal-box form button.primary');if(save){save.type='button';save.onclick=()=>{const form=save.form;if(form.reportValidity())form.dispatchEvent(new Event('submit',{cancelable:true}))}}queueMicrotask(()=>{const box=$('.modal-box');if(box)enhanceSelects(box)})}function closeModal(){closeSmartSelects();$('#modal').querySelectorAll('select').forEach(select=>select._smartMenu?.remove());$('#modal').innerHTML=''}
-function renderNav(){let h='';Object.entries(navs).forEach(([g,xs])=>{h+=`<div class="group">${g}</div>`+xs.map(x=>`<button class="nav ${page===x[0]?'active':''}" data-page="${x[0]}">${x[1]}</button>`).join('')});h+=`<button class="nav nav-logic ${page===logicNav[0]?'active':''}" data-page="${logicNav[0]}">◇ ${logicNav[1]}</button>`;$('#nav').innerHTML=h;document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>{page=b.dataset.page;render()})}
+const mobileLayout=matchMedia('(max-width:900px)');
+const mobileMenuButton=$('#open-mobile-menu');
+const mobileBar=$('.mobile-tabs');
+
+function setMobileMenu(open,restoreFocus=true){
+  if(!mobileLayout.matches)open=false;
+  const wasOpen=mobileMenuButton.getAttribute('aria-expanded')==='true';
+  if(wasOpen===open)return;
+  closeSmartSelects();
+  mobileMenuButton.setAttribute('aria-expanded',String(open));
+  document.body.classList.toggle('mobile-menu-open',open);
+  $('#mobile-backdrop').hidden=!open;
+  $('main').inert=open;
+  mobileBar.inert=open;
+  if(open)$('#close-mobile-menu').focus();
+  else if(restoreFocus&&mobileLayout.matches)mobileMenuButton.focus();
+}
+
+function navigateTo(nextPage){
+  const fromMenu=mobileMenuButton.getAttribute('aria-expanded')==='true';
+  setMobileMenu(false,false);
+  page=nextPage;
+  const update=render();
+  if(fromMenu)$('#title').focus();
+  return update;
+}
+
+function renderNav(){
+  const navButton=([id,label],extra='')=>
+    `<button type="button" class="nav ${extra} ${page===id?'active':''}" data-page="${id}" ${page===id?'aria-current="page"':''}>${label}</button>`;
+  $('#nav').innerHTML=Object.entries(navs).map(([group,items])=>
+    `<div class="group">${group}</div>`+items.map(item=>navButton(item)).join('')
+  ).join('')+navButton(logicNav,'nav-logic');
+  mobileBar.querySelectorAll('[data-page]').forEach(button=>{
+    if(button.dataset.page===page)button.setAttribute('aria-current','page');
+    else button.removeAttribute('aria-current');
+  });
+  mobileMenuButton.classList.toggle('section-active',!mobileBar.querySelector('[aria-current="page"]'));
+}
+
+$('#nav').onclick=mobileBar.onclick=event=>{
+  const button=event.target.closest('[data-page]');
+  if(button)navigateTo(button.dataset.page);
+};
+mobileMenuButton.onclick=()=>setMobileMenu(true);
+$('#close-mobile-menu').onclick=$('#mobile-backdrop').onclick=()=>setMobileMenu(false);
+mobileLayout.addEventListener('change',()=>{
+  setMobileMenu(false,false);
+  if(db&&page==='movimenti')render();
+  else enhanceSelects($('.actions'));
+});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&mobileMenuButton.getAttribute('aria-expanded')==='true'){
+    event.preventDefault();
+    setMobileMenu(false);
+  }
+});
+
 async function saldo(ms,cats,plans,y){
   const ys=ms.filter(x=>+x.year===y&&!x.excluded),through=ms.filter(x=>+x.year<=y&&!x.excluded),latest=[...through].sort((a,b)=>String(a.accounting_date).localeCompare(String(b.accounting_date))).pop();
   const available=through.filter(x=>String(x.bank).toUpperCase()!=='CASH').reduce((s,x)=>s+(+x.amount||0),0),monthly=Array.from({length:12},(_,i)=>ys.filter(x=>+x.month===i+1&&!x.is_opening_balance).reduce((s,x)=>s+ +x.amount,0)+cashComponents(ms,y,[i+1]).net),accounts={};
@@ -76,7 +140,7 @@ async function saldo(ms,cats,plans,y){
   const top=expenseRows.filter(x=>x[1]<0).sort((a,b)=>a[1]-b[1]).slice(0,8),incomeTop=incomeRows.filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).slice(0,8);
   const bankLead=Object.entries(accounts).sort((a,b)=>b[1]-a[1])[0],incomeLead=incomeTop[0],expenseLead=top[0];
   const positiveMonths=monthly.filter(v=>v>0).length,expenseToIncome=incomeTotal>0?`${(expenseTotal/incomeTotal*100).toLocaleString('it-IT',{maximumFractionDigits:1})}%`:'–';
-  $('#app').innerHTML=`<div class="kpis overview-kpis"><div class="card kpi kpi-basic"><small>Saldo disponibile</small><strong class="${available<0?'bad':'good'}">${money(available)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Conti bancari</span><b>${Object.keys(accounts).length.toLocaleString('it-IT')}</b></div><div class="kpi-detail-row"><span>Banca principale</span><b title="${esc(bankLead?.[0]||'–')}">${esc(bankLead?.[0]||'–')} · ${bankLead?money(bankLead[1]):'–'}</b></div></div></div><div class="card kpi kpi-basic"><small>Entrate</small><strong class="good">${money(incomeActual)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Voci attive</span><b>${incomeRows.filter(x=>x[1]>0).length}</b></div><div class="kpi-detail-row"><span title="${esc(incomeLead?.[0]||'Nessuna voce')}">Top · ${esc(incomeLead?.[0]||'–')}</span><b>${incomeLead?money(incomeLead[1]):'–'}</b></div></div></div><div class="card kpi kpi-basic"><small>Uscite</small><strong class="bad">${money(expenseActual)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Voci attive</span><b>${expenseRows.filter(x=>x[1]<0).length}</b></div><div class="kpi-detail-row"><span title="${esc(expenseLead?.[0]||'Nessuna voce')}">Top · ${esc(expenseLead?.[0]||'–')}</span><b>${expenseLead?money(expenseLead[1]):'–'}</b></div></div></div><div class="card kpi kpi-basic"><small>Cash flow netto</small><strong class="${cashFlowNet<0?'bad':cashFlowNet>0?'good':''}">${money(cashFlowNet)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Mesi positivi</span><b>${positiveMonths}/12</b></div><div class="kpi-detail-row"><span>Uscite / entrate</span><b>${expenseToIncome}</b></div></div></div><div class="card kpi kpi-projection"><span class="projection-eyebrow">PROIEZIONE · ${y+1}</span><small>SALDO INIZIO ANNO NUOVO</small><strong class="${nextYearStart<0?'bad':nextYearStart>0?'good':''}">${money(nextYearStart)}</strong><div class="projection-detail">Saldo disponibile: ${money(available)}</div><div class="projection-detail">+ Totale Δ Actual vs FRCST: ${money(forecastDelta)}</div><div class="projection-note">Proiezione su tutti i 12 mesi del ${y}</div></div></div><div class="grid"><div class="card span2"><div class="section-head"><h2>Cash flow mensile</h2><span class="muted">Valori in euro · passa sulle colonne per il dettaglio</span></div>${cashFlowChart(monthly,y)}</div><div class="card"><h2>Saldi per banca</h2>${Object.entries(accounts).map(x=>`<p class="section-head"><span>${esc(x[0])}</span><b class="${x[1]<0?'bad':'good'}">${money(x[1])}</b></p>`).join('')||'<div class="empty">Nessun dato</div>'}</div><div class="card"><h2>Archivio</h2><p class="section-head"><span>Movimenti ${y}</span><b>${ys.length.toLocaleString('it-IT')}</b></p><p class="section-head"><span>Ultimo movimento</span><b>${esc(latest?.accounting_date||'–')}</b></p></div><div class="card"><h2>Principali uscite</h2>${donutChart(top,expenseTotal,'red')}${top.length?top.map(x=>`<p class="section-head"><span>${esc(x[0])}</span><b class="bad">${money(x[1])}</b></p>`).join(''):'<div class="empty">Nessun dato</div>'}</div><div class="card"><h2>Principali entrate</h2>${donutChart(incomeTop,incomeTotal,'green')}${incomeTop.map(x=>`<p class="section-head"><span>${esc(x[0])}</span><b class="good">${money(x[1])}</b></p>`).join('')||'<div class="empty">Nessun dato</div>'}</div></div>`;
+  $('#app').innerHTML=`<div class="kpis overview-kpis"><div class="card kpi kpi-basic"><small>Saldo disponibile</small><strong class="${available<0?'bad':'good'}">${money(available)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Conti bancari</span><b>${Object.keys(accounts).length.toLocaleString('it-IT')}</b></div><div class="kpi-detail-row"><span>Banca principale</span><b title="${esc(bankLead?.[0]||'–')}">${esc(bankLead?.[0]||'–')} · ${bankLead?money(bankLead[1]):'–'}</b></div></div></div><div class="card kpi kpi-basic"><small>Entrate</small><strong class="good">${money(incomeActual)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Voci attive</span><b>${incomeRows.filter(x=>x[1]>0).length}</b></div><div class="kpi-detail-row"><span title="${esc(incomeLead?.[0]||'Nessuna voce')}">Top · ${esc(incomeLead?.[0]||'–')}</span><b>${incomeLead?money(incomeLead[1]):'–'}</b></div></div></div><div class="card kpi kpi-basic"><small>Uscite</small><strong class="bad">${money(expenseActual)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Voci attive</span><b>${expenseRows.filter(x=>x[1]<0).length}</b></div><div class="kpi-detail-row"><span title="${esc(expenseLead?.[0]||'Nessuna voce')}">Top · ${esc(expenseLead?.[0]||'–')}</span><b>${expenseLead?money(expenseLead[1]):'–'}</b></div></div></div><div class="card kpi kpi-basic"><small>Cash flow netto</small><strong class="${cashFlowNet<0?'bad':cashFlowNet>0?'good':''}">${money(cashFlowNet)}</strong><div class="kpi-details"><div class="kpi-detail-row"><span>Mesi positivi</span><b>${positiveMonths}/12</b></div><div class="kpi-detail-row"><span>Uscite / entrate</span><b>${expenseToIncome}</b></div></div></div><div class="card kpi kpi-projection"><span class="projection-eyebrow">PROIEZIONE · ${y+1}</span><small>SALDO INIZIO ANNO NUOVO</small><strong class="${nextYearStart<0?'bad':nextYearStart>0?'good':''}">${money(nextYearStart)}</strong><div class="projection-detail">Saldo disponibile: ${money(available)}</div><div class="projection-detail">+ Totale Δ Actual vs FRCST: ${money(forecastDelta)}</div><div class="projection-note">Proiezione su tutti i 12 mesi del ${y}</div></div></div><div class="grid"><div class="card span2"><div class="section-head"><h2>Cash flow mensile</h2><span class="muted">Valori in euro · seleziona una colonna per il dettaglio</span></div>${cashFlowChart(monthly,y)}</div><div class="card"><h2>Saldi per banca</h2>${Object.entries(accounts).map(x=>`<p class="section-head"><span>${esc(x[0])}</span><b class="${x[1]<0?'bad':'good'}">${money(x[1])}</b></p>`).join('')||'<div class="empty">Nessun dato</div>'}</div><div class="card"><h2>Archivio</h2><p class="section-head"><span>Movimenti ${y}</span><b>${ys.length.toLocaleString('it-IT')}</b></p><p class="section-head"><span>Ultimo movimento</span><b>${esc(latest?.accounting_date||'–')}</b></p></div><div class="card"><h2>Principali uscite</h2>${donutChart(top,expenseTotal,'red')}${top.length?top.map(x=>`<p class="section-head"><span>${esc(x[0])}</span><b class="bad">${money(x[1])}</b></p>`).join(''):'<div class="empty">Nessun dato</div>'}</div><div class="card"><h2>Principali entrate</h2>${donutChart(incomeTop,incomeTotal,'green')}${incomeTop.map(x=>`<p class="section-head"><span>${esc(x[0])}</span><b class="good">${money(x[1])}</b></p>`).join('')||'<div class="empty">Nessun dato</div>'}</div></div>`;
 }
 function yearThermometer(ms,y){const latest=ms.filter(x=>+x.year===+y&&!x.excluded&&!x.is_opening_balance&&x.accounting_date).sort((a,b)=>String(a.accounting_date).localeCompare(String(b.accounting_date))).pop();if(!latest)return`<div class="year-thermometer empty-thermometer"><div><b>Tempo residuo dell'anno</b><small>Nessun movimento disponibile per il ${y}</small></div></div>`;const parts=String(latest.accounting_date).slice(0,10).split('-').map(Number),date=Date.UTC(parts[0],parts[1]-1,parts[2]),start=Date.UTC(y,0,1),days=(Date.UTC(y+1,0,1)-start)/86400000,day=Math.min(days,Math.max(1,Math.floor((date-start)/86400000)+1)),remaining=days-day,pct=remaining/days*100,label=pct.toLocaleString('it-IT',{minimumFractionDigits:1,maximumFractionDigits:1});return`<div class="year-thermometer"><div class="thermometer-head"><div><b>Tempo residuo fino al 31/12/${y}</b><small>Calcolato sull'ultimo movimento del ${esc(latest.accounting_date)}</small></div><strong>${label}%</strong></div><div class="thermometer-visual" role="meter" aria-label="Tempo residuo dell'anno" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct.toFixed(1)}"><span class="thermometer-bulb"></span><span class="thermometer-track"><span class="thermometer-fill" style="width:${pct.toFixed(3)}%"></span></span></div></div>`}
 async function planning(ms,cats,plans,y){
@@ -96,7 +160,7 @@ async function planning(ms,cats,plans,y){
     }
   }
   body+=`<tr class="grand-row"><td>TOTALE GENERALE</td>${values(sumRows(rows))}</tr>`;
-  $('#app').innerHTML=`<div class="card planning-page">${yearThermometer(ms,y)}<div class="month-filter-panel"><div><b>Periodo di analisi</b><small>${selectedMonths.length} ${selectedMonths.length===1?'mese selezionato':'mesi selezionati'} · Budget e Forecast proporzionati a ${selectedMonths.length}/12</small></div><div class="month-filter-actions"><button id="all-planning-months" class="${selectedMonths.length===12?'active':''}">Tutti</button>${monthLabels.map((label,i)=>`<button class="month-filter ${planningMonths.has(i+1)?'active':''}" data-planning-month="${i+1}">${label}</button>`).join('')}</div></div><div class="tablewrap planning-table"><table><colgroup><col style="width:29%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:12%"><col style="width:10%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th rowspan="2">Struttura del prospetto</th><th colspan="2" class="head-plan">Pianificazione</th><th colspan="3" class="head-actual">Risultati e scostamenti</th><th colspan="2" class="head-history">Storico</th></tr><tr><th class="head-plan">Budget</th><th class="head-plan">Forecast</th><th class="head-actual">Actual</th><th class="head-actual">Δ Actual vs FRCST</th><th class="head-actual">Δ Actual vs FRCST %</th><th class="head-history">LY</th><th class="head-history">LLY</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+  $('#app').innerHTML=`<div class="card planning-page">${yearThermometer(ms,y)}<div class="month-filter-panel"><div><b>Periodo di analisi</b><small>${selectedMonths.length} ${selectedMonths.length===1?'mese selezionato':'mesi selezionati'} · Budget e Forecast proporzionati a ${selectedMonths.length}/12</small></div><div class="month-filter-actions"><button id="all-planning-months" class="${selectedMonths.length===12?'active':''}">Tutti</button>${monthLabels.map((label,i)=>`<button class="month-filter ${planningMonths.has(i+1)?'active':''}" data-planning-month="${i+1}">${label}</button>`).join('')}</div></div><p class="mobile-table-hint">Scorri a lato per risultati, scostamenti e storico.</p><div class="tablewrap planning-table"><table><colgroup><col style="width:29%"><col style="width:10%"><col style="width:10%"><col style="width:10%"><col style="width:12%"><col style="width:10%"><col style="width:9%"><col style="width:10%"></colgroup><thead><tr><th rowspan="2">Struttura del prospetto</th><th colspan="2" class="head-plan">Pianificazione</th><th colspan="3" class="head-actual">Risultati e scostamenti</th><th colspan="2" class="head-history">Storico</th></tr><tr><th class="head-plan">Budget</th><th class="head-plan">Forecast</th><th class="head-actual">Actual</th><th class="head-actual">Δ Actual vs FRCST</th><th class="head-actual">Δ Actual vs FRCST %</th><th class="head-history">LY</th><th class="head-history">LLY</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
   document.querySelectorAll('[data-planning-month]').forEach(button=>button.onclick=()=>{const month=+button.dataset.planningMonth;if(planningMonths.has(month)){if(planningMonths.size===1)return toast('Seleziona almeno un mese');planningMonths.delete(month)}else planningMonths.add(month);planning(ms,cats,plans,y)});$('#all-planning-months').onclick=()=>{planningMonths=new Set(Array.from({length:12},(_,i)=>i+1));planning(ms,cats,plans,y)};
   document.querySelectorAll('[data-movement]').forEach(button=>button.onclick=()=>{const movement=button.dataset.movementName;if(expandedPlanningMovements.has(movement))expandedPlanningMovements.delete(movement);else expandedPlanningMovements.add(movement);planning(ms,cats,plans,y)});
   document.querySelectorAll('[data-group]').forEach(button=>button.onclick=()=>{const group=button.dataset.group;if(expandedPlanningGroups.has(group))expandedPlanningGroups.delete(group);else expandedPlanningGroups.add(group);planning(ms,cats,plans,y)});
@@ -119,8 +183,13 @@ async function movements(ms,cats,y){
   const ordered=[...chronological].reverse(),currentBalance=chronological.length?chronological[chronological.length-1].display_balance:0;
   if(!sort.movements)sort.movements={k:'accounting_date',d:-1};
   const cols=[{k:'bank',l:'Banca',r:fullText},{k:'accounting_date',l:'Data movimento'},{k:'value_date',l:'Data valuta'},{k:'causale',l:'Causale',r:fullText},{k:'extended_description',l:'Descrizione estesa',r:(v,r)=>fullText(v||r.description)},{k:'movement',l:'Movimento',r:fullText},{k:'amount',l:'Importo',num:1,r:amountCents},{k:'display_balance',l:'Saldo progressivo',num:1,r:amountCents},{k:'category',l:'Voce app',r:(v,r)=>`<select data-cat="${r.id}" title="${esc(v||'Da classificare')}"><option>${esc(v||'Da classificare')}</option>${cats.filter(x=>+x.year===y).map(x=>`<option>${esc(x.name)}</option>`).join('')}</select>`},{k:'group',l:'Gruppo',r:fullText},{k:'note',l:'Note',r:v=>String(v||'').trim()?`<span title="${esc(v)}" aria-label="Nota presente">✓</span>`:''},{k:'id',l:'Gestione',r:(v,r)=>`<button data-edit-movement="${v}"${r.classification_mode==='manuale'?' class="manual-edit-button" title="Movimento modificato manualmente"':''}>Modifica</button>`}];
+  if(mobileLayout.matches){
+    const priority=['bank','accounting_date','amount','extended_description','id'];
+    const rank=key=>priority.includes(key)?priority.indexOf(key):priority.length;
+    cols.sort((a,b)=>rank(a.k)-rank(b.k));
+  }
   const draw=()=>{const filtered=ordered.filter(x=>+x.year===y&&JSON.stringify(x).toLowerCase().includes(q)),pages=Math.max(1,Math.ceil(filtered.length/pageSize));if(pageNo>=pages)pageNo=pages-1;const rows=filtered.slice(pageNo*pageSize,(pageNo+1)*pageSize);replaceTableMarkup($('#mov-table'),table('movements',cols,rows));bindTable('movements',draw);enhanceSelects($('#mov-table'));document.querySelectorAll('[data-cat]').forEach(select=>select.onchange=async()=>{const x=ms.find(m=>m.id==select.dataset.cat),previous=x.category||'Da classificare',next=select.value;if(!await confirmChange('Conferma modifica voce',`Cambiare la voce da “${previous}” a “${next}”?`,'Modifica')){select.value=previous;select._smartSyncHandler?.();return}const cat=cats.find(c=>+c.year===y&&c.name===next);x.category=next;x.group=cat?.group||x.group;x.classification_mode='manuale';select.title=next;await put('movements',x);await render();toast('Voce aggiornata · report ricalcolati')});document.querySelectorAll('[data-edit-movement]').forEach(button=>button.onclick=()=>movementForm(ms.find(x=>x.id==button.dataset.editMovement),ms,cats,y));$('#mov-count').textContent=`${filtered.length.toLocaleString('it-IT')} movimenti`;$('#page-label').textContent=`Pagina ${pageNo+1} di ${pages}`;$('#prev').disabled=pageNo===0;$('#next').disabled=pageNo>=pages-1};
-  $('#app').innerHTML=`<div class="card compact-page"><div class="section-head"><div><h2>Movimenti</h2><p class="muted">Inserisci o modifica movimenti, descrizioni, importi e note. CASH non concorre al saldo.</p></div><div class="movement-head-actions"><div class="current-balance"><small>Saldo attuale</small><strong class="${currentBalance<0?'bad':'good'}">${moneyCents(currentBalance)}</strong></div><button class="primary" id="new-movement">+ Nuovo movimento</button></div></div><div class="toolbar"><input id="search" placeholder="Cerca"><span id="mov-count"></span></div><div id="mov-table"></div><div class="toolbar"><button id="prev">← Precedente</button><span id="page-label"></span><button id="next">Successiva →</button></div></div>`;
+  $('#app').innerHTML=`<div class="card compact-page"><div class="section-head"><div><h2>Movimenti</h2><p class="muted">Inserisci o modifica movimenti, descrizioni, importi e note. CASH non concorre al saldo.</p></div><div class="movement-head-actions"><div class="current-balance"><small>Saldo attuale</small><strong class="${currentBalance<0?'bad':'good'}">${moneyCents(currentBalance)}</strong></div><button class="primary" id="new-movement">+ Nuovo movimento</button></div></div><div class="toolbar"><input id="search" placeholder="Cerca"><span id="mov-count"></span></div><p class="mobile-table-hint">Scorri a lato per descrizioni, modifiche e altre colonne.</p><div id="mov-table"></div><div class="toolbar"><button id="prev">← Precedente</button><span id="page-label"></span><button id="next">Successiva →</button></div></div>`;
   $('#new-movement').onclick=()=>movementForm(null,ms,cats,y);$('#search').oninput=frameDebounce(e=>{q=e.target.value.toLowerCase();pageNo=0;draw()});$('#prev').onclick=()=>{if(pageNo>0){pageNo--;draw()}};$('#next').onclick=()=>{pageNo++;draw()};draw();
 }
 async function categories(cats,y){
@@ -152,7 +221,79 @@ async function importExcel(file){
   for(const year of affectedYears){await cloneCategories(currentCats,year);currentCats=await all('categories');const result=await reclassifyYear(year,currentCats);reclassified+=result.processed}
   return{added,dups,skipped,reclassified,affectedYears:[...affectedYears]};
 }
-async function backupPage(){let counts=Object.fromEntries(await Promise.all(stores.slice(0,4).map(async s=>[s,(await all(s)).length])));$('#app').innerHTML=`<div class="grid"><div class="card"><h2>Importa nuovi movimenti</h2><p class="muted">File .xlsx/.xls. Le righe già presenti vengono riconosciute e ignorate.</p><input type="file" id="excel" accept=".xlsx,.xls,.xlsb"><button class="primary" id="do-import">Importa Excel</button><p id="result"></p></div><div class="card"><h2>Backup privato</h2><p class="muted">Scarica il database completo e conservalo nel tuo Google Drive. Per ripristinarlo, seleziona il file JSON.</p><div class="toolbar"><button class="primary" id="export">Scarica backup</button><input type="file" id="restore" accept=".json"></div></div><div class="card span2"><h2>Dati salvati in questo browser</h2><p>Movimenti: <b>${counts.movements}</b> · Voci: <b>${counts.categories}</b> · Piani: <b>${counts.plans}</b> · Finanziamenti: <b>${counts.loans}</b></p><p class="muted">GitHub non riceve mai questi dati. Se cancelli i dati del browser senza backup, non possono essere recuperati.</p></div></div>`;$('#do-import').onclick=async()=>{let f=$('#excel').files[0];if(!f)return toast('Seleziona un file Excel');if(!await confirmChange('Conferma importazione',`Importare i nuovi movimenti dal file ${f.name} e aggiornare tutti i report?`,'Importa'))return;const button=$('#do-import');button.disabled=true;$('#result').textContent='Confronto con la tabella Movimenti…';try{let r=await importExcel(f);await refreshYears();await render();if($('#result'))$('#result').innerHTML=`<b>${r.added}</b> nuove righe categorizzate · <b>${r.dups}</b> già presenti · report aggiornati`;toast(`${r.added} nuovi movimenti categorizzati · Overview e report aggiornati`)}catch(e){button.disabled=false;$('#result').textContent=e.message}};$('#export').onclick=exportBackup;$('#restore').onchange=async e=>{const file=e.target.files[0];if(!file)return;if(await confirmChange('Conferma ripristino','Sostituire i dati correnti con quelli del backup selezionato?','Ripristina'))restoreBackup(file);else e.target.value=''}}
+function installedApp(){
+  return navigator.standalone===true||matchMedia('(display-mode:standalone)').matches;
+}
+
+async function requestArchivePersistence(){
+  try{
+    const storage=navigator.storage;
+    if(!storage?.persist)return false;
+    return await storage.persisted?.()||await storage.persist();
+  }catch{
+    return false;
+  }
+}
+
+function showArchiveTransfer(){
+  const notice=document.createElement('div');
+  notice.className='card archive-notice';
+  notice.innerHTML=`<div><h2>Nessun movimento in questo archivio</h2><p>${installedApp()
+    ? 'Se usavi Home Finance nel browser o su un altro dispositivo, scarica il backup da lì e aprilo qui.'
+    : 'Se hai già dati su un altro dispositivo, puoi trasferirli con un backup JSON.'}</p></div><button class="primary" type="button">Importazione e backup</button>`;
+  notice.querySelector('button').onclick=()=>navigateTo('backup');
+  $('#app').prepend(notice);
+}
+
+async function backupPage(){
+  const counts=Object.fromEntries(await Promise.all(stores.slice(0,4).map(async store=>[store,(await all(store)).length])));
+  $('#app').innerHTML=`
+    <div class="grid backup-grid">
+      <div class="card backup-transfer">
+        <h2>Backup e trasferimento</h2>
+        <p class="muted">Per trasferire l’archivio, scarica il backup dove vedi i tuoi dati. Poi apri Home Finance dall’icona sullo smartphone e scegli il file JSON da File o Download.</p>
+        <div class="toolbar">
+          <button class="primary" id="export" type="button">Scarica backup</button>
+          <button id="open-restore" type="button">Scegli backup JSON</button>
+          <input type="file" id="restore" accept=".json,application/json" aria-label="Scegli backup JSON" hidden>
+        </div>
+        <p class="muted backup-storage" id="backup-storage"></p>
+      </div>
+      <div class="card">
+        <h2>Importa nuovi movimenti</h2>
+        <p class="muted">File Excel. Le righe già presenti vengono riconosciute e ignorate.</p>
+        <div class="toolbar"><input type="file" id="excel" accept=".xlsx,.xls,.xlsb" aria-label="Scegli file Excel"><button class="primary" id="do-import">Importa Excel</button></div>
+        <p id="result" role="status"></p>
+      </div>
+      <div class="card span2">
+        <h2>Dati in questo archivio</h2>
+        <p>Movimenti: <b>${counts.movements}</b> · Voci: <b>${counts.categories}</b> · Piani: <b>${counts.plans}</b> · Finanziamenti: <b>${counts.loans}</b></p>
+        <p class="muted">I dati sono salvati localmente. Su iPhone l’app installata e la scheda del browser hanno archivi distinti. Conserva una copia del backup in File o sul tuo spazio personale.</p>
+      </div>
+    </div>`;
+  const storageStatus=$('#backup-storage');
+  navigator.storage?.persisted?.().then(persisted=>{
+    if(persisted)storageStatus.textContent='Archiviazione persistente attiva in questa app.';
+  }).catch(()=>{});
+  $('#do-import').onclick=async()=>{let f=$('#excel').files[0];if(!f)return toast('Seleziona un file Excel');if(!await confirmChange('Conferma importazione',`Importare i nuovi movimenti dal file ${f.name} e aggiornare tutti i report?`,'Importa'))return;const button=$('#do-import');button.disabled=true;$('#result').textContent='Confronto con la tabella Movimenti…';try{let r=await importExcel(f);await refreshYears();await render();if($('#result'))$('#result').innerHTML=`<b>${r.added}</b> nuove righe categorizzate · <b>${r.dups}</b> già presenti · report aggiornati`;toast(`${r.added} nuovi movimenti categorizzati · Overview e report aggiornati`)}catch(e){button.disabled=false;$('#result').textContent=e.message}};
+  $('#export').onclick=async event=>{
+    const button=event.currentTarget;
+    button.disabled=true;
+    try{await exportBackup()}
+    catch(error){toast('Backup non scaricato: '+error.message)}
+    finally{button.disabled=false}
+  };
+  $('#open-restore').onclick=()=>$('#restore').click();
+  $('#restore').onchange=async event=>{
+    const input=event.target,file=input.files[0];
+    input.value='';
+    if(!file)return;
+    const button=$('#open-restore');
+    button.disabled=true;
+    try{await restoreBackup(file)}
+    finally{button.disabled=false}
+  };
+}
 async function logicPage(ms,cats,plans,y){const yearMovements=ms.filter(x=>+x.year===y&&!x.is_opening_balance),yearRules=cats.filter(x=>+x.year===y),manual=yearMovements.filter(x=>x.classification_mode==='manuale').length,last=[...yearMovements].filter(x=>x.accounting_date).sort((a,b)=>String(a.accounting_date).localeCompare(String(b.accounting_date))).pop(),cash=overviewIncomeCash(ms,y),sections=[
   {id:'flusso',tag:'ORDINARIA',title:'Flusso e aggiornamento dei dati',summary:'Dal file Excel ai report, senza duplicazioni.',body:`<ol><li>L'importazione confronta più chiavi identificative con MOVIMENTI e inserisce soltanto le righe nuove.</li><li>Le nuove righe ricevono banca ISP quando la banca è vuota.</li><li>Dopo importazione, modifica o riclassificazione vengono ricalcolati Overview e report.</li><li>I dati restano nel database del browser; GitHub pubblica soltanto l'app.</li></ol>`},
   {id:'categorie',tag:'ORDINARIA',title:'Associazione Regole e Categorie',summary:'Causale e descrizione estesa determinano la Voce.',body:`<ol><li>La ricerca usa insieme <b>Causale</b> e <b>Descrizione estesa</b>.</li><li>Le keyword conservano gli spazi significativi; tra più corrispondenze prevale la keyword specifica più lunga.</li><li>La regola è applicata soltanto al Movimento coerente: ENTRATE oppure USCITE.</li><li>Se nessuna regola coincide, vengono usate ENTRATE VARIE o USCITE VARIE.</li><li>Le voci modificate manualmente sono protette dagli aggiornamenti automatici e il pulsante Modifica diventa giallo.</li></ol>`},
@@ -163,7 +304,95 @@ async function logicPage(ms,cats,plans,y){const yearMovements=ms.filter(x=>+x.ye
   {id:'finanziamenti',tag:'ORDINARIA',title:'Finanziamenti',summary:'Rate e stato derivano da date e ultimo movimento.',body:`<ul><li>Una rata equivale a un mese.</li><li>Le rate totali derivano da attivazione e scadenza.</li><li>Le rate pagate sono calcolate fino alla data dell'ultimo movimento disponibile.</li><li>Il filtro iniziale mostra i finanziamenti APERTI.</li></ul>`},
   {id:'formati',tag:'TRASVERSALE',title:'Segni, colori e conferme',summary:'La lettura economica determina il colore.',body:`<ul><li>Gli importi negativi usano il segno meno, mai le parentesi.</li><li>Rosso indica effetto sfavorevole; verde effetto favorevole o risparmio.</li><li>Gli importi MOVIMENTI mantengono i centesimi; i prospetti mostrano valori interi.</li><li>Ogni modifica persistente richiede conferma prima del salvataggio.</li></ul>`}
 ];$('#app').innerHTML=`<div class="logic-page"><div class="card logic-hero"><div><small>MAPPA FUNZIONALE · ${y}</small><h2>Logiche di Home Finance</h2><p>Regole operative aggiornate in base al comportamento effettivo dell'app.</p></div><div class="logic-live"><span><b>${yearMovements.length.toLocaleString('it-IT')}</b> movimenti</span><span><b>${yearRules.length.toLocaleString('it-IT')}</b> regole</span><span><b>${manual.toLocaleString('it-IT')}</b> manuali</span><span><b>${esc(last?.accounting_date||'–')}</b> ultimo dato</span></div></div><div class="card logic-flow"><button data-logic-target="flusso">Importazione</button><i>→</i><button data-logic-target="categorie">Classificazione</button><i>→</i><button data-logic-target="actual">Calcoli</button><i>→</i><button data-logic-target="cash">Eccezioni</button><i>→</i><button data-logic-target="budget">Report</button></div><div class="card logic-tools"><input id="logic-search" type="search" placeholder="Cerca una logica…"><button id="logic-expand">Espandi tutte</button><button id="logic-collapse">Comprimi tutte</button></div><div class="logic-sections">${sections.map((section,index)=>`<details class="card logic-item" id="logic-${section.id}" ${index===0?'open':''}><summary><div><span>${section.tag}</span><h3>${section.title}</h3><p>${section.summary}</p></div><b>＋</b></summary><div class="logic-body">${section.body}</div></details>`).join('')}</div></div>`;const items=[...document.querySelectorAll('.logic-item')];$('#logic-search').oninput=e=>{const q=normalizedText(e.target.value);items.forEach(item=>{const match=!q||normalizedText(item.textContent).includes(q);item.hidden=!match;if(q&&match)item.open=true})};$('#logic-expand').onclick=()=>items.filter(x=>!x.hidden).forEach(x=>x.open=true);$('#logic-collapse').onclick=()=>items.forEach(x=>x.open=false);document.querySelectorAll('[data-logic-target]').forEach(button=>button.onclick=()=>{const item=$(`#logic-${button.dataset.logicTarget}`);item.hidden=false;item.open=true;item.scrollIntoView({behavior:'smooth',block:'start'})})}
-async function exportBackup(){let data={format:'casa-finance-backup',version:1,createdAt:new Date().toISOString(),data:{}};for(let s of stores)data.data[s]=await all(s);let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));a.download=`casa-finance-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(a.href)}async function restoreBackup(file){try{let x=JSON.parse(await file.text());if(x.format==='casa-finance-plan-update'){const existing=await all('plans');for(const p of existing)if(+p.year>=2017&&+p.year<=2025)await del('plans',p.id);for(const source of x.data?.plans||[]){const p={...source};delete p.id;await put('plans',p)}toast(`${x.data?.plans?.length||0} piani storici aggiornati`)}else{if(x.format!=='casa-finance-backup')throw Error('Formato backup non valido');for(let s of stores){await clear(s);for(let v of x.data[s]||[])await put(s,v)}await ensureRuleMigration();await ensureSearchFieldsMigration();await ensureVarieFigliMigration();await normalizeBlankBanks();toast('Backup ripristinato · Overview e report aggiornati')}await ensureHistoricalReportMigration();await ensureMovementActualMigration();await refreshYears();render()}catch(e){toast(e.message)}}
+async function exportBackup(){
+  const transaction=db.transaction(stores);
+  const entries=await Promise.all(stores.map(store=>new Promise((resolve,reject)=>{
+    const request=transaction.objectStore(store).getAll();
+    request.onsuccess=()=>resolve([store,request.result]);
+    request.onerror=()=>reject(request.error);
+  })));
+  const createdAt=new Date().toISOString();
+  const data={format:'casa-finance-backup',version:1,createdAt,data:Object.fromEntries(entries)};
+  const link=document.createElement('a');
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
+  link.href=url;
+  link.download=`casa-finance-backup-${createdAt.slice(0,10)}.json`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+}
+
+function validBackupRows(rows){
+  return Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&!Array.isArray(row)&&Object.keys(row).length>0);
+}
+
+function writeBackup(data,historical){
+  return new Promise((resolve,reject)=>{
+    const transaction=db.transaction(historical?['plans']:stores,'readwrite');
+    let writeError;
+    transaction.oncomplete=resolve;
+    transaction.onabort=()=>reject(writeError||transaction.error||Error('Scrittura interrotta'));
+    const write=callback=>{
+      try{callback()}
+      catch(error){writeError=error;transaction.abort()}
+    };
+    if(historical){
+      const plans=transaction.objectStore('plans');
+      const request=plans.getAll();
+      request.onsuccess=()=>write(()=>{
+        for(const plan of request.result)if(+plan.year>=2017&&+plan.year<=2025)plans.delete(plan.id);
+        for(const {id,...plan} of data.plans)plans.put(plan);
+      });
+      return;
+    }
+    write(()=>{
+      for(const name of stores){
+        const store=transaction.objectStore(name);
+        store.clear();
+        for(const row of data[name]??[])store.put(row);
+      }
+    });
+  });
+}
+
+async function restoreBackup(file){
+  let committed=false;
+  try{
+    const backup=JSON.parse(await file.text());
+    const historical=backup?.format==='casa-finance-plan-update';
+    const data=backup?.data;
+    if(historical){
+      if(!validBackupRows(data?.plans)||!data.plans.length||data.plans.some(plan=>!(+plan.year>=2017&&+plan.year<=2025))){
+        throw Error('Il file non contiene un aggiornamento valido dei piani storici.');
+      }
+    }else if(backup?.format!=='casa-finance-backup'||!stores.slice(0,4).every(name=>validBackupRows(data?.[name]))||
+        (data.meta!==undefined&&!validBackupRows(data.meta))){
+      throw Error('Il file non contiene un backup completo di Home Finance.');
+    }
+    const confirmed=await confirmChange('Conferma ripristino',historical
+      ? `Sostituire i piani dal 2017 al 2025 con le ${data.plans.length} righe del file?`
+      : `Sostituire l’archivio di questa app con il backup selezionato (${data.movements.length} movimenti, ${data.categories.length} voci, ${data.plans.length} piani, ${data.loans.length} finanziamenti)?`,'Ripristina');
+    if(!confirmed)return;
+    void requestArchivePersistence();
+    await writeBackup(data,historical);
+    committed=true;
+    if(!historical){
+      await ensureRuleMigration();
+      await ensureSearchFieldsMigration();
+      await ensureVarieFigliMigration();
+      await normalizeBlankBanks();
+    }
+    await ensureHistoricalReportMigration();
+    await ensureMovementActualMigration();
+    await refreshYears();
+    await render();
+    toast(historical?`${data.plans.length} piani storici aggiornati`:'Backup ripristinato · Archivio disponibile su questo dispositivo');
+  }catch(error){
+    toast((committed?'Dati salvati, aggiornamento della vista interrotto: ':'Ripristino non riuscito: ')+error.message);
+  }
+}
+
 
 /* Future financial years are explicit: no overwrite of existing annual records. */
 const setupYearPrefix='active-year:';
@@ -245,8 +474,23 @@ let lastRenderedPage=null;
 function scrollSnapshot(){return {y:window.scrollY,tables:[...document.querySelectorAll('#app .tablewrap')].map(el=>({top:el.scrollTop,left:el.scrollLeft}))}}
 function restoreScroll(snapshot){if(!snapshot)return;const restore=()=>{document.querySelectorAll('#app .tablewrap').forEach((el,i)=>{const p=snapshot.tables[i];if(p){el.scrollTop=p.top;el.scrollLeft=p.left}});window.scrollTo({top:snapshot.y,behavior:'instant'})};restore();requestAnimationFrame(restore)}
 function replaceTableMarkup(mount,markup){const old=mount.querySelector('.tablewrap'),state=old?{top:old.scrollTop,left:old.scrollLeft}:null,vertical=window.scrollY;mount.innerHTML=markup;const next=mount.querySelector('.tablewrap');if(state&&next){next.scrollTop=state.top;next.scrollLeft=state.left}requestAnimationFrame(()=>{if(next&&state){next.scrollTop=state.top;next.scrollLeft=state.left}window.scrollTo({top:vertical,behavior:'instant'})})}
-async function render(){closeSmartSelects();const keepPosition=lastRenderedPage===page,position=keepPosition?scrollSnapshot():null;lastRenderedPage=page;const version=++renderVersion;renderNav();const y=+$('#year').value,requestedPage=page,label=requestedPage===logicNav[0]?logicNav[1]:Object.values(navs).flat().find(x=>x[0]===requestedPage)?.[1];$('#title').textContent=label;$('#crumb').textContent=label;if(!keepPosition){$('#app').replaceChildren($('#app-loading').content.cloneNode(true));window.scrollTo({top:0,behavior:'instant'})}let[ms,cats,plans,loans]=await Promise.all([all('movements'),all('categories'),all('plans'),all('loans')]);if(y>=2027&&!cats.some(x=>+x.year===y)&&!(await all('meta')).some(x=>x.key===setupYearPrefix+y)){await cloneCategories(cats,y);cats=await all('categories')}if(version!==renderVersion)return;if(requestedPage==='saldo')await saldo(ms,cats,plans,y);else if(requestedPage==='planning')await planning(ms,cats,plans,y);else if(requestedPage==='budget')await budgetPage(ms,cats,plans,y);else if(requestedPage==='movimenti')await movements(ms,cats,y);else if(requestedPage==='categorie')await categories(cats,y);else if(requestedPage==='finanziamenti')await loansPage(loans,ms);else if(requestedPage==='logiche')await logicPage(ms,cats,plans,y);else await backupPage();if(version===renderVersion){enhanceSelects();restoreScroll(position)}}
-let installPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#install').hidden=false});$('#install').onclick=()=>installPrompt?.prompt();$('#year').onchange=render;$('#refresh').onclick=render;$('#theme').onclick=()=>document.body.classList.toggle('dark');
+async function render(){closeSmartSelects();const keepPosition=lastRenderedPage===page,position=keepPosition?scrollSnapshot():null;lastRenderedPage=page;const version=++renderVersion;renderNav();const y=+$('#year').value,requestedPage=page,label=requestedPage===logicNav[0]?logicNav[1]:Object.values(navs).flat().find(x=>x[0]===requestedPage)?.[1];$('#title').textContent=label;$('#crumb').textContent=label;if(!keepPosition){$('#app').replaceChildren($('#app-loading').content.cloneNode(true));window.scrollTo({top:0,behavior:'instant'})}let[ms,cats,plans,loans]=await Promise.all([all('movements'),all('categories'),all('plans'),all('loans')]);if(y>=2027&&!cats.some(x=>+x.year===y)&&!(await all('meta')).some(x=>x.key===setupYearPrefix+y)){await cloneCategories(cats,y);cats=await all('categories')}if(version!==renderVersion)return;if(requestedPage==='saldo'){await saldo(ms,cats,plans,y);if(version===renderVersion&&!ms.length&&!loans.length)showArchiveTransfer()}else if(requestedPage==='planning')await planning(ms,cats,plans,y);else if(requestedPage==='budget')await budgetPage(ms,cats,plans,y);else if(requestedPage==='movimenti')await movements(ms,cats,y);else if(requestedPage==='categorie')await categories(cats,y);else if(requestedPage==='finanziamenti')await loansPage(loans,ms);else if(requestedPage==='logiche')await logicPage(ms,cats,plans,y);else await backupPage();if(version===renderVersion){enhanceSelects();restoreScroll(position)}}
+let installPrompt;
+const installButtons=[$('#install'),$('#mobile-install')];
+window.addEventListener('beforeinstallprompt',event=>{
+  event.preventDefault();
+  installPrompt=event;
+  installButtons.forEach(button=>button.hidden=false);
+});
+installButtons.forEach(button=>button.onclick=async()=>{
+  if(!installPrompt)return;
+  const prompt=installPrompt;
+  installPrompt=null;
+  try{await prompt.prompt()}
+  finally{installButtons.forEach(button=>button.hidden=true)}
+});
+$('#year').onchange=$('#refresh').onclick=render;
+$('#theme').onclick=()=>document.body.classList.toggle('dark');
 const launchScreen=$('#launch-screen');
 const logoEntrance=Promise.allSettled(launchScreen.firstElementChild.getAnimations().map(animation=>animation.finished));
 
@@ -270,9 +514,12 @@ async function startApp(){
     await ensureMovementActualMigration();
     await refreshYears();
     await render();
+    if(installedApp())void requestArchivePersistence();
     if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
   }catch(error){
-    $('#app').textContent=error.message;
+    $('#app').innerHTML='<div class="card" role="alert"><h2>Archivio non accessibile</h2><p></p><button type="button">Riprova</button></div>';
+    $('#app p').textContent=error.message;
+    $('#app button').onclick=()=>location.reload();
   }finally{
     await dismissLaunchScreen();
   }
