@@ -116,3 +116,42 @@ body.dark .overview-kpis .kpi-basic{box-shadow:0 2px 7px rgba(0,0,0,.14)}
 #loan-table .loan-total-row td.num{font-variant-numeric:tabular-nums}
 #loan-table .loan-total-row small{font-size:10px;font-weight:500;color:var(--muted)}
 @media(max-width:1050px){.planning-page .planning-table{overflow-x:auto}.planning-page .planning-table table{min-width:820px;font-size:10px}}
+
+/* PWA launch and loading */
+#launch-screen{
+  position:fixed;
+  inset:0;
+  z-index:1000;
+  display:grid;
+  place-items:center;
+  background:radial-gradient(ellipse at 50% 46%,#fff 6%,#edf8ff 54%,#d7e6f3 100%);
+  pointer-events:none;
+  animation:launch-fade .46s 8s ease both;
+}
+#launch-screen img{
+  width:min(78vw,68vh,520px);
+  height:auto;
+  filter:drop-shadow(0 16px 25px #10253f30);
+  animation:launch-logo 1.2s cubic-bezier(.2,.75,.26,1) both;
+}
+#launch-screen.is-ready{animation:launch-dismiss .46s ease both}
+@keyframes launch-logo{
+  0%{opacity:0;transform:translateY(22px) scale(.9)}
+  55%,100%{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes launch-fade{
+  from{opacity:1}
+  to{opacity:0;visibility:hidden}
+}
+@keyframes launch-dismiss{
+  from{opacity:1}
+  to{opacity:0;visibility:hidden}
+}
+.app-loading{display:flex;align-items:center;gap:12px}
+.app-loading img{flex:none;animation:app-icon-spin 1.25s linear infinite}
+@keyframes app-icon-spin{to{transform:rotate(1turn)}}
+@media(prefers-reduced-motion:reduce){
+  #launch-screen{animation-duration:0s}
+  #launch-screen img,.app-loading img,#launch-screen.is-ready{animation:none}
+  #launch-screen.is-ready{visibility:hidden}
+}
