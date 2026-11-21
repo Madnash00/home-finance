@@ -1,6 +1,6 @@
 /** Home Finance private Drive storage. Configuration lives in Script Properties. */
 const DATA_FILE_NAME = 'home-finance-database.encrypted.json';
-const MAX_BODY = 9_000_000;
+const MAX_BODY = 9000000;
 
 function reply_(body) {
   return ContentService.createTextOutput(JSON.stringify(body))
