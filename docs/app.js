@@ -83,7 +83,24 @@ async function migrateCashLogic(ms){const plans=await all('plans');for(const p o
 async function ensureRuleMigration(){const meta=await all('meta');if(meta.some(x=>x.key==='classification-rules-v5'))return;let cats=await all('categories');await normalizeCategories(cats);cats=await all('categories');await synchronizeAnalysisPlans(cats);const movements=await all('movements'),years=[...new Set(movements.map(x=>+x.year).filter(Boolean))];for(const year of years)await reclassifyYear(year,cats);await migrateCashLogic(await all('movements'));await put('meta',{key:'classification-rules-v5',completedAt:new Date().toISOString()})}
 async function ensureSearchFieldsMigration(){const meta=await all('meta');if(meta.some(x=>x.key==='classification-search-fields-v6'))return;const[movements,cats]=await Promise.all([all('movements'),all('categories')]);for(const movement of movements.filter(x=>!x.is_opening_balance&&x.classification_mode!=='manuale')){const category=classifyMovement(movement,cats),rule=cats.find(c=>+c.year===+movement.year&&c.name===category&&c.movement===((+movement.amount||0)<0?'USCITE':'ENTRATE'));if(movement.category!==category||movement.group!==(rule?.group||''))await put('movements',{...movement,category,group:rule?.group||'',classification_mode:'regola'})}await put('meta',{key:'classification-search-fields-v6',completedAt:new Date().toISOString()})}
 async function normalizeBlankBanks(){const movements=await all('movements');let updated=0;for(const movement of movements)if(!String(movement.bank||'').trim()){await put('movements',{...movement,bank:'ISP'});updated++}return updated}
-async function ensureVarieFigliMigration(){const meta=await all('meta');if(meta.some(x=>x.key==='varie-figli-source-v7'))return;const planValues={2019:[-400,-400],2020:[-850,-250],2021:[-810,-1310],2022:[-1020,-1600],2023:[-1000,-1945],2024:[-2190,-2330],2025:[-2500,-1990],2026:[-1845,-1170]};let[cats,plans,movements]=await Promise.all([all('categories'),all('plans'),all('movements')]);for(const year of Object.keys(planValues).map(Number)){const existing=cats.find(c=>+c.year===year&&String(c.movement).toUpperCase()==='USCITE'&&String(c.group).toUpperCase()==='FIGLI'&&String(c.name).toUpperCase()==='VARIE FIGLI');if(existing){if(existing.movement!=='USCITE'||existing.group!=='FIGLI'||existing.name!=='VARIE FIGLI'||existing.keywords!=='_VARIE FIGLI_')await put('categories',{...existing,movement:'USCITE',group:'FIGLI',name:'VARIE FIGLI',keywords:'_VARIE FIGLI_',description:existing.description||'Associazione storica dal file Contabilità'})}else await put('categories',{year,movement:'USCITE',group:'FIGLI',name:'VARIE FIGLI',keywords:'_VARIE FIGLI_',description:'Associazione storica dal file Contabilità',source:'DB ANALISI_Consolidato'});cats=await all('categories');if(!plans.some(p=>+p.year===year&&p.scope!=='management'&&String(p.movement).toUpperCase()==='USCITE'&&String(p.group).toUpperCase()==='FIGLI'&&String(p.category).toUpperCase()==='VARIE FIGLI')){const[budget,forecast]=planValues[year];await put('plans',{scope:'analysis',year,movement:'USCITE',group:'FIGLI',category:'VARIE FIGLI',budget,forecast,actual_adjustment:0,ly_adjustment:0,lly_adjustment:0,source:'BUDGET-FRCST (Year) · Contabilità'});plans=await all('plans')}}let updated=0;for(const movement of movements){const text=`${movement.causale||''} ${movement.extended_description||movement.description||''} ${movement.combined||''} ${movement.source_category||''}`.toUpperCase();if(+movement.amount<0&&text.includes('_VARIE FIGLI_')&&movement.classification_mode!=='manuale'&&(movement.category!=='VARIE FIGLI'||movement.group!=='FIGLI')){await put('movements',{...movement,category:'VARIE FIGLI',group:'FIGLI',classification_mode:'storico'});updated++}}await put('meta',{key:'varie-figli-source-v7',completedAt:new Date().toISOString(),updatedMovements:updated,sourceRows:140})}
+const defaultChildPlans={2019:[-400,-400],2020:[-850,-250],2021:[-810,-1310],2022:[-1020,-1600],2023:[-1000,-1945],2024:[-2190,-2330],2025:[-2500,-1990],2026:[-1845,-1170]};
+const defaultChildCategory={movement:'USCITE',group:'FIGLI',name:'VARIE FIGLI',keywords:'_VARIE FIGLI_',description:'Associazione storica dal file Contabilità',source:'DB ANALISI_Consolidato'};
+const defaultMigrationKeys=new Set(['classification-rules-v5','classification-search-fields-v6','varie-figli-source-v7','historical-report-reconciliation-v8','movement-actual-source-v9']);
+function isStarterArchive(records){
+  if(records.movements.length||records.loans.length||records.meta.some(record=>!defaultMigrationKeys.has(record.key)))return false;
+  const matches=(record,defaults)=>{
+    const {id,...data}=record;
+    return Object.keys(data).length===Object.keys(defaults).length&&Object.keys(defaults).every(key=>data[key]===defaults[key]);
+  };
+  return records.categories.every(record=>Object.hasOwn(defaultChildPlans,record.year)&&matches(record,{...defaultChildCategory,year:record.year}))&&
+    records.plans.every(record=>{
+      if(!Object.hasOwn(defaultChildPlans,record.year))return false;
+      const [budget,forecast]=defaultChildPlans[record.year];
+      return matches(record,{scope:'analysis',year:record.year,movement:'USCITE',group:'FIGLI',category:'VARIE FIGLI',budget,forecast,actual_adjustment:0,ly_adjustment:0,lly_adjustment:0,source:'BUDGET-FRCST (Year) · Contabilità'});
+    });
+}
+
+async function ensureVarieFigliMigration(){const meta=await all('meta');if(meta.some(x=>x.key==='varie-figli-source-v7'))return;const planValues=defaultChildPlans;let[cats,plans,movements]=await Promise.all([all('categories'),all('plans'),all('movements')]);for(const year of Object.keys(planValues).map(Number)){const existing=cats.find(c=>+c.year===year&&String(c.movement).toUpperCase()==='USCITE'&&String(c.group).toUpperCase()==='FIGLI'&&String(c.name).toUpperCase()==='VARIE FIGLI');if(existing){if(existing.movement!=='USCITE'||existing.group!=='FIGLI'||existing.name!=='VARIE FIGLI'||existing.keywords!=='_VARIE FIGLI_')await put('categories',{...existing,movement:'USCITE',group:'FIGLI',name:'VARIE FIGLI',keywords:'_VARIE FIGLI_',description:existing.description||'Associazione storica dal file Contabilità'})}else await put('categories',{year,...defaultChildCategory});cats=await all('categories');if(!plans.some(p=>+p.year===year&&p.scope!=='management'&&String(p.movement).toUpperCase()==='USCITE'&&String(p.group).toUpperCase()==='FIGLI'&&String(p.category).toUpperCase()==='VARIE FIGLI')){const[budget,forecast]=planValues[year];await put('plans',{scope:'analysis',year,movement:'USCITE',group:'FIGLI',category:'VARIE FIGLI',budget,forecast,actual_adjustment:0,ly_adjustment:0,lly_adjustment:0,source:'BUDGET-FRCST (Year) · Contabilità'});plans=await all('plans')}}let updated=0;for(const movement of movements){const text=`${movement.causale||''} ${movement.extended_description||movement.description||''} ${movement.combined||''} ${movement.source_category||''}`.toUpperCase();if(+movement.amount<0&&text.includes('_VARIE FIGLI_')&&movement.classification_mode!=='manuale'&&(movement.category!=='VARIE FIGLI'||movement.group!=='FIGLI')){await put('movements',{...movement,category:'VARIE FIGLI',group:'FIGLI',classification_mode:'storico'});updated++}}await put('meta',{key:'varie-figli-source-v7',completedAt:new Date().toISOString(),updatedMovements:updated,sourceRows:140})}
 async function ensureHistoricalReportMigration(){const meta=await all('meta');if(meta.some(x=>x.key==='historical-report-reconciliation-v8'))return;let[plans,movements]=await Promise.all([all('plans'),all('movements')]),groups=new Map,mergedPlans=0,removedPlans=0;for(const plan of plans.filter(p=>p.scope!=='management')){const key=reportPlanKey(plan);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(plan)}for(const group of groups.values())if(group.length>1){const merged=mergeReportPlanGroup(group,movements),canonical=[...group].sort((a,b)=>(+a.id||0)-(+b.id||0)).at(-1);await put('plans',{...merged,id:canonical.id});for(const plan of group)if(plan.id!==canonical.id){await del('plans',plan.id);removedPlans++}mergedPlans++}await put('meta',{key:'historical-report-reconciliation-v8',completedAt:new Date().toISOString(),mergedPlans,removedPlans,source:'BUDGET-FRCST (Year) · Contabilità'})}
 async function ensureMovementActualMigration(){const meta=await all('meta');if(meta.some(x=>x.key==='movement-actual-source-v9'))return;let[plans,movements]=await Promise.all([all('plans'),all('movements')]),restoredMovements=0,restoredPlans=0;for(const movement of movements)if(movement.exclusion_reason==='Fuori dal prospetto BUDGET-FRCST (Year) del file Contabilità'){const{exclusion_reason,...restored}=movement;await put('movements',{...restored,excluded:false});restoredMovements++}for(const plan of plans)if(plan.report_excluded&&String(plan.category||'').toUpperCase()==='USCITE STRAORDINARIE'){const{report_excluded,...restored}=plan;await put('plans',restored);restoredPlans++}await put('meta',{key:'movement-actual-source-v9',completedAt:new Date().toISOString(),restoredMovements,restoredPlans,source:'MOVIMENTI'})}
 async function recalculateAndRender(year){let latest=await all('categories');await normalizeCategories(latest);latest=await all('categories');const plansUpdated=await synchronizeAnalysisPlans(latest),result=await reclassifyYear(year,latest);await refreshYears();await render();return{plansUpdated,...result}}
@@ -250,13 +267,36 @@ async function requestArchivePersistence(){
   }
 }
 
+async function showDevicePairing(mode,initialLink){
+  try{
+    const {openPairing}=await import('./device-pairing.js?v=40');
+    openPairing(driveSync,{mode,initialLink,onConnected:result=>{
+      if(result.conflict)void navigateTo('backup');
+      else{
+        void navigateTo('saldo');
+        toast('Dispositivo collegato a Google Drive.');
+      }
+    }});
+  }catch{
+    toast('Collegamento non disponibile. Riprova quando sei online.');
+  }
+}
+
+window.addEventListener('hashchange',()=>{
+  if(!driveSync||!location.hash.startsWith('#pair='))return;
+  const link=location.href;
+  history.replaceState(history.state,'',location.pathname+location.search);
+  void showDevicePairing('receive',link);
+});
+
 function showArchiveTransfer(){
   const notice=document.createElement('div');
   notice.className='card archive-notice';
-  notice.innerHTML=`<div><h2>Nessun movimento in questo archivio</h2><p>${installedApp()
-    ? 'Se usavi Home Finance nel browser o su un altro dispositivo, scarica il backup da lì e aprilo qui.'
-    : 'Se hai già dati su un altro dispositivo, puoi trasferirli con un backup JSON.'}</p></div><button class="primary" type="button">Importazione e backup</button>`;
-  notice.querySelector('button').onclick=()=>navigateTo('backup');
+  notice.innerHTML=`<div><h2>Nessun movimento in questo archivio</h2><p>Hai già un archivio Home Finance? Collegalo per ritrovare i tuoi dati.</p></div><div class="toolbar">
+    <button class="primary" type="button" data-start-pair>Collega questo dispositivo</button>
+    <button type="button" data-start-backup>Importazione e backup</button></div>`;
+  notice.querySelector('[data-start-pair]').onclick=()=>showDevicePairing('receive');
+  notice.querySelector('[data-start-backup]').onclick=()=>navigateTo('backup');
   $('#app').prepend(notice);
 }
 
@@ -282,7 +322,18 @@ async function backupPage(){
       </div>
       <div class="card span2">
         <h2>Sincronizzazione con Google Drive</h2>
-        <p class="muted">Usa lo stesso indirizzo Apps Script e la stessa chiave sui tuoi dispositivi. Conserva la chiave: serve a leggere l’archivio cifrato.</p>
+        <p id="drive-status" role="status"></p>
+        <div id="drive-conflict" class="toolbar" hidden>
+          <button type="button" id="drive-use-remote">Usa archivio Drive</button>
+          <button type="button" id="drive-use-local">Usa archivio di questo dispositivo</button>
+        </div>
+        <div class="toolbar">
+          <button class="primary" type="button" id="drive-pair-send">Collega un altro dispositivo</button>
+          <button class="primary" type="button" id="drive-pair-receive">Collega questo dispositivo</button>
+        </div>
+        <details class="drive-advanced">
+          <summary>Impostazioni avanzate</summary>
+          <p class="muted">Conserva la chiave privata per recuperare l’archivio cifrato.</p>
         <form class="form" id="drive-form">
           <label>Indirizzo Apps Script <input name="endpoint" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></label>
           <label>Chiave privata <input name="secret" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
@@ -294,12 +345,8 @@ async function backupPage(){
             <button type="button" id="drive-disconnect">Scollega</button>
           </div>
           <input class="wide" id="drive-verifier" aria-label="Valore della proprietà HF_AUTH_SHA256" readonly hidden>
-          <p class="wide" id="drive-status" role="status"></p>
-          <div class="wide" id="drive-conflict" hidden>
-            <button type="button" id="drive-use-remote">Usa archivio Drive</button>
-            <button type="button" id="drive-use-local">Usa archivio di questo dispositivo</button>
-          </div>
         </form>
+        </details>
       </div>
       <div class="card span2">
         <h2>Dati in questo archivio</h2>
@@ -308,6 +355,8 @@ async function backupPage(){
       </div>
     </div>`;
   driveSync?.mount($('#drive-form'));
+  $('#drive-pair-send').onclick=()=>showDevicePairing('send');
+  $('#drive-pair-receive').onclick=()=>showDevicePairing('receive');
   const storageStatus=$('#backup-storage');
   navigator.storage?.persisted?.().then(persisted=>{
     if(persisted)storageStatus.textContent='Archiviazione persistente attiva in questa app.';
@@ -574,6 +623,7 @@ async function startApp(){
     await ensureMovementActualMigration();
     driveSync=window.createHomeFinanceDriveSync?.({
       read:readArchive,
+      isStarter:isStarterArchive,
       replace:(records,expected)=>{
         if(!stores.every(name=>validBackupRows(records?.[name])))throw Error('Archivio Drive incompleto.');
         return writeBackup(records,false,expected);
@@ -587,6 +637,8 @@ async function startApp(){
     });
     await refreshYears();
     await render();
+    const initialPairLink=driveSync?.initialPairLink;
+    if(initialPairLink)void showDevicePairing('receive',initialPairLink);
     if(installedApp())void requestArchivePersistence();
     if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
   }catch(error){
