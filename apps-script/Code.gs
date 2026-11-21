@@ -8,7 +8,7 @@ function reply_(body) {
 }
 
 function doGet() {
-  return reply_({ service: 'home-finance-drive', version: 1 });
+  return reply_({ service: 'home-finance-drive', version: 2 });
 }
 
 function sha256_(input) {
@@ -50,15 +50,42 @@ function checkDatabaseFolder() {
   return { folder: folder.getName(), initialized: !!current };
 }
 
+function pairingRequest_(request) {
+  if (typeof request.ticket !== 'string' || !/^[a-f0-9]{64}$/.test(request.ticket)) {
+    return reply_({ ok: false, error: 'invalid_request' });
+  }
+  const cache = CacheService.getScriptCache();
+  const key = 'device-pair:' + sha256_(request.ticket);
+  if (request.action === 'pair_create') {
+    if (!validEnvelope_(request.snapshot) || request.snapshot.ciphertext.length > 256) {
+      return reply_({ ok: false, error: 'invalid_request' });
+    }
+    cache.put(key, JSON.stringify(request.snapshot), 300);
+    return reply_({ ok: true });
+  }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return reply_({ ok: false, error: 'busy' });
+  try {
+    const snapshot = cache.get(key);
+    if (!snapshot) return reply_({ ok: false, error: 'pair_expired' });
+    cache.remove(key);
+    return reply_({ ok: true, snapshot: JSON.parse(snapshot) });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function doPost(event) {
   const body = event && event.postData && event.postData.contents;
   if (typeof body !== 'string' || body.length > MAX_BODY) return reply_({ ok: false, error: 'invalid_request' });
   let request;
   try { request = JSON.parse(body); } catch (_) { return reply_({ ok: false, error: 'invalid_request' }); }
+  if (request && request.action === 'pair_claim') return pairingRequest_(request);
   const properties = PropertiesService.getScriptProperties();
   if (!authorized_(request && request.auth, properties.getProperty('HF_AUTH_SHA256'))) {
     return reply_({ ok: false, error: 'unauthorized' });
   }
+  if (request.action === 'pair_create') return pairingRequest_(request);
   if (request.action !== 'load' && request.action !== 'save') return reply_({ ok: false, error: 'invalid_request' });
   if (request.action === 'save' && !validEnvelope_(request.snapshot)) return reply_({ ok: false, error: 'invalid_request' });
   const lock = LockService.getScriptLock();

@@ -275,3 +275,14 @@ body.dark .overview-kpis .kpi-basic{box-shadow:0 2px 7px rgba(0,0,0,.14)}
     background:#203b5d;font-size:24px;
   }
 }
+.pair-dialog{width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;padding:16px;border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink)}
+.pair-dialog::backdrop{background:#08182ab9}
+.pair-dialog .section-head{margin-bottom:6px}
+.pair-dialog h2{margin:0;font-size:20px}
+.pair-dialog p{line-height:1.5}
+.pair-dialog canvas,.pair-dialog video{display:block;width:min(100%,320px);height:auto;margin:12px auto;border-radius:8px}
+.pair-dialog [hidden],#drive-conflict[hidden]{display:none}
+.pair-dialog button{min-height:44px}
+.pair-dialog input{display:block;width:100%;margin:6px 0;padding:10px;font-size:16px}
+.drive-advanced summary{cursor:pointer;padding:8px 0}
+.archive-notice .toolbar{margin:0}

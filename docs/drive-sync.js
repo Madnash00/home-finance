@@ -2,6 +2,8 @@
   'use strict';
 
   const storageKey = 'home-finance-drive-v1';
+  const initialPairLink = location.hash.startsWith('#pair=') ? location.href : null;
+  if (initialPairLink) history.replaceState(history.state, '', location.pathname + location.search);
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const endpointPattern = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
@@ -22,10 +24,10 @@
     return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
   }
 
-  async function encrypt(text, secret) {
+  async function encrypt(text, secret, allowCompression = true) {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const bytes = encoder.encode(text);
-    const compressed = typeof CompressionStream === 'function';
+    const compressed = allowCompression && typeof CompressionStream === 'function';
     const payload = compressed
       ? await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()
       : bytes;
@@ -46,7 +48,7 @@
   }
 
   async function remoteRequest(connection, action, fields = {}) {
-    const auth = await digest('home-finance authorization v1:' + connection.secret);
+    const auth = action === 'pair_claim' ? undefined : await digest('home-finance authorization v1:' + connection.secret);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
@@ -67,6 +69,7 @@
           conflict: 'Drive è cambiato durante il salvataggio. La sincronizzazione riproverà.',
           storage_error: 'Apps Script non riesce ad accedere all’archivio Drive.',
           invalid_request: 'Il backend ha respinto la richiesta.',
+          pair_expired: 'Il codice è scaduto o è già stato usato. Generane uno nuovo.',
         };
         throw Error(messages[result.error] || 'Risposta inattesa da Apps Script.');
       }
@@ -74,6 +77,19 @@
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  function pairingDetails(link) {
+    const url = new URL(link);
+    if (url.origin !== location.origin || url.pathname !== new URL('./', location.href).pathname) {
+      throw Error('Il link non appartiene a Home Finance.');
+    }
+    const [id, ticket, key] = new URLSearchParams(url.hash.slice(1)).get('pair')?.split('.') ?? [];
+    const endpoint = 'https://script.google.com/macros/s/' + id + '/exec';
+    if (!id || !endpointPattern.test(endpoint) || !keyPattern.test(ticket) || !keyPattern.test(key)) {
+      throw Error('Codice di collegamento non valido.');
+    }
+    return { endpoint, ticket, key };
   }
 
   function loadConnection() {
@@ -96,7 +112,16 @@
       const output = document.querySelector('#drive-status');
       if (output) output.textContent = status;
       const choices = document.querySelector('#drive-conflict');
-      if (choices) choices.hidden = !conflict;
+      if (choices) {
+        choices.hidden = !conflict;
+        choices.querySelector('#drive-use-local').hidden = Boolean(state?.pendingPair);
+      }
+      const send = document.querySelector('#drive-pair-send');
+      const receive = document.querySelector('#drive-pair-receive');
+      if (send && receive) {
+        send.hidden = !state || Boolean(state.pendingPair);
+        receive.hidden = Boolean(state && !state.pendingPair);
+      }
     }
 
     function remember(connection, progress) {
@@ -116,10 +141,15 @@
       const connection = state;
       updateStatus('Sincronizzazione in corso…', conflict);
       try {
-        const local = JSON.stringify(await archive.read());
+        const records = await archive.read();
+        const local = JSON.stringify(records);
         const localHash = await digest(local);
         const { database } = await remoteRequest(connection, 'load');
         const revision = database?.revision ?? null;
+        if (!database && connection.pendingPair) {
+          updateStatus('Archivio Drive non disponibile. Riprova dal dispositivo già collegato.');
+          return;
+        }
         if (!database && connection.revision && preference !== 'local') {
           updateStatus('Archivio Drive assente. Scegli se ripubblicare la copia locale.', true);
           return;
@@ -131,6 +161,7 @@
         const remoteChanged = revision !== connection.revision;
         let direction = preference;
 
+        if (!direction && !sameData && connection.pendingPair && archive.isStarter(records)) direction = 'remote';
         if (!direction && !sameData) {
           if (!database) direction = 'local';
           else if (connection.revision && !localChanged && remoteChanged) direction = 'remote';
@@ -162,7 +193,7 @@
           updateStatus('Collegamento modificato su un’altra scheda.');
           return;
         }
-        remember(connection, { revision: savedRevision, localHash: syncedHash });
+        remember(connection, { revision: savedRevision, localHash: syncedHash, pendingPair: false });
         updateStatus('Archivio sincronizzato con Drive.');
         if (direction === 'remote' && !sameData) await archive.refresh();
       } catch (error) {
@@ -193,6 +224,36 @@
 
     return {
       schedule,
+      initialPairLink,
+      async createPairLink() {
+        if (!state || state.pendingPair) throw Error('Collega prima il dispositivo all’archivio Drive.');
+        const connection = state;
+        const ticket = hex(crypto.getRandomValues(new Uint8Array(32)));
+        const key = hex(crypto.getRandomValues(new Uint8Array(32)));
+        const snapshot = await encrypt(connection.secret, key, false);
+        await remoteRequest(connection, 'pair_create', { ticket, snapshot });
+        const id = new URL(connection.endpoint).pathname.split('/')[3];
+        const link = new URL('./', location.href);
+        link.hash = 'pair=' + [id, ticket, key].join('.');
+        return link.href;
+      },
+      async acceptPairLink(link) {
+        if (running) throw Error('Aspetta la fine della sincronizzazione e riprova.');
+        const { endpoint, ticket, key } = pairingDetails(link);
+        if (state && state.endpoint !== endpoint) throw Error('Questo dispositivo è già collegato a un altro archivio.');
+        running = true;
+        try {
+          const { snapshot } = await remoteRequest({ endpoint }, 'pair_claim', { ticket });
+          const secret = await decrypt(snapshot, key);
+          if (!keyPattern.test(secret)) throw Error('Chiave di collegamento non valida.');
+          if (state && state.secret !== secret) throw Error('Questo dispositivo è già collegato a un altro archivio.');
+          if (!state) remember({ endpoint, secret }, { pendingPair: true });
+        } finally {
+          running = false;
+        }
+        await sync();
+        return { status, conflict, connected: Boolean(state && !state.pendingPair) };
+      },
       mount(form) {
         const endpoint = form.elements.endpoint;
         const secret = form.elements.secret;
@@ -234,10 +295,10 @@
             updateStatus(error.message);
           }
         };
-        form.querySelector('#drive-use-local').onclick = async () => {
+        document.querySelector('#drive-use-local').onclick = async () => {
           if (await archive.confirm('Sostituire l’archivio su Drive con la copia di questo dispositivo?')) await sync('local');
         };
-        form.querySelector('#drive-use-remote').onclick = async () => {
+        document.querySelector('#drive-use-remote').onclick = async () => {
           if (await archive.confirm('Sostituire l’archivio di questo dispositivo con la copia su Drive?')) await sync('remote');
         };
         form.querySelector('#drive-disconnect').onclick = () => {
