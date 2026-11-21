@@ -1,6 +1,6 @@
-const CACHE='home-finance-v38';
+const CACHE='home-finance-v39';
 const FILES=[
-  './','index.html','style.css?v=38','app.js?v=38','manifest.webmanifest',
+  './','index.html','style.css?v=39','app.js?v=39','drive-sync.js?v=39','manifest.webmanifest',
   'branding/launch-logo.webp','branding/header-logo.webp','branding/app-icon-32.png',
   'branding/app-icon-180.png','branding/app-icon-192.png','branding/app-icon-512.png'
 ];
