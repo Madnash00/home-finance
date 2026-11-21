@@ -1,0 +1,14 @@
+# Backend Google Drive di Home Finance
+
+L’interfaccia rimane su [GitHub Pages](https://madnash00.github.io/home-finance/). Il progetto Apps Script espone due operazioni JSON, lettura e salvataggio. La cartella rimane nel Drive dell’account che esegue il deployment. La PWA cifra l’intero IndexedDB (movimenti, categorie, piani, finanziamenti e metadati) con AES-GCM prima dell’invio.
+
+## Configurare il progetto Apps Script
+
+1. Aggiungere `Code.gs` al progetto. Usare il runtime V8. Se si modifica il manifest esplicito, usare `appsscript.json`.
+2. In **Home Finance → Importazione e Backup → Sincronizzazione con Google Drive**, scegliere **Genera chiave**, **Mostra chiave** e conservarla in un gestore di password. Selezionare **Codice di verifica per Apps Script** e copiare quel codice separato.
+3. In **Impostazioni progetto → Proprietà script**, impostare `HF_FOLDER_ID` con l’ID della cartella autorizzata e `HF_AUTH_SHA256` con il codice di verifica. Il valore di quest’ultimo è un hash e non permette di decifrare il database.
+4. Eseguire `checkDatabaseFolder` dall’editor. Autorizzare l’accesso a Drive dal proprio account Google. Apps Script richiede lo scope Google Drive in lettura e scrittura. Il codice usa soltanto la cartella configurata e il file `home-finance-database.encrypted.json` al suo interno.
+5. Eseguire il deployment come **App web**, eseguita come proprietario e accessibile a **Chiunque**. È necessario che GitHub Pages possa raggiungere l’endpoint senza affidarsi ai cookie di Google. Una chiamata senza credenziale valida non legge né modifica il file. La richiesta contiene solo la credenziale derivata dalla chiave. Il codice non contiene identificativi della cartella o chiavi.
+6. Copiare l’URL che termina in `/exec`. Inserirlo in Home Finance, partendo dal dispositivo che contiene l’archivio da conservare, insieme alla chiave privata. Selezionare **Collega e sincronizza**. Su ogni altro dispositivo inserire gli stessi valori. Il file viene creato al primo salvataggio riuscito.
+
+In caso di modifiche concorrenti, l’app chiede quale archivio conservare e scarica prima la copia locale. Il backend accetta le scritture solo quando la revisione attesa corrisponde alla revisione corrente. Offline, le modifiche rimangono in IndexedDB e la sincronizzazione riprende quando torna la connessione. Conservare la chiave privata insieme ai backup. La chiave privata è indispensabile per il recupero.

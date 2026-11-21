@@ -2,7 +2,22 @@ const DB='casa-finance',VER=1,stores=['movements','categories','plans','loans','
 const fmtCents=n=>new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:2}).format(Math.abs(+n||0)),moneyCents=n=>(+n<0?'-':'')+fmtCents(n),amountCents=n=>`<span class="${+n<0?'bad':+n?'good':''}">${moneyCents(n)}</span>`;
 const navs={DATABASE:[['backup','Importazione e Backup'],['movimenti','Movimenti']],ANALISI:[['saldo','Overview'],['planning','Actual vs FRCST'],['finanziamenti','Dettaglio Finanziamenti']],GESTIONE:[['categorie','Regole e Categorie'],['budget','Budget & Forecast']]};
 const logicNav=['logiche','Logiche'];
-function openDB(){return new Promise((ok,no)=>{let r=indexedDB.open(DB,VER);r.onupgradeneeded=()=>stores.forEach(s=>{if(!r.result.objectStoreNames.contains(s))r.result.createObjectStore(s,{keyPath:'id',autoIncrement:true})});r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function all(s){return new Promise((ok,no)=>{let r=db.transaction(s).objectStore(s).getAll();r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function put(s,v){return new Promise((ok,no)=>{let r=db.transaction(s,'readwrite').objectStore(s).put(v);r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function del(s,id){return new Promise((ok,no)=>{let r=db.transaction(s,'readwrite').objectStore(s).delete(id);r.onsuccess=ok;r.onerror=()=>no(r.error)})}
+function openDB(){return new Promise((ok,no)=>{let r=indexedDB.open(DB,VER);r.onupgradeneeded=()=>stores.forEach(s=>{if(!r.result.objectStoreNames.contains(s))r.result.createObjectStore(s,{keyPath:'id',autoIncrement:true})});r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}function all(s){return new Promise((ok,no)=>{let r=db.transaction(s).objectStore(s).getAll();r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
+let driveSync;
+
+function changeRecord(store, action, value){
+  return new Promise((resolve,reject)=>{
+    const transaction=db.transaction(store,'readwrite');
+    const request=transaction.objectStore(store)[action](value);
+    transaction.oncomplete=()=>{
+      driveSync?.schedule();
+      resolve(request.result);
+    };
+    transaction.onabort=()=>reject(transaction.error||Error('Scrittura interrotta'));
+  });
+}
+function put(store,value){return changeRecord(store,'put',value)}
+function del(store,id){return changeRecord(store,'delete',id)}
 function amount(n,type='',movement=''){n=+n||0;let bad=n<0;if(type==='variance')bad=movement==='USCITE'?n<0:n>0;return `<span class="${bad?'bad':n?'good':''}">${type==='variance'&&n>0?'+':''}${money(n)}</span>`}function toast(s){$('#toast').textContent=s;$('#toast').classList.add('show');setTimeout(()=>$('#toast').classList.remove('show'),2500)}function years(rows){let ys=new Set([new Date().getFullYear(),2026,2025,2024]);rows.forEach(x=>x.year&&ys.add(+x.year));return [...ys].sort((a,b)=>b-a)}
 function signedVariance(n){n=+n||0;return `<span class="${n<0?'bad':n>0?'good':''}">${n>0?'+':''}${money(n)}</span>`}
 function frameDebounce(fn){let frame;return(...args)=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>fn(...args))}}
@@ -266,11 +281,33 @@ async function backupPage(){
         <p id="result" role="status"></p>
       </div>
       <div class="card span2">
+        <h2>Sincronizzazione con Google Drive</h2>
+        <p class="muted">Usa lo stesso indirizzo Apps Script e la stessa chiave sui tuoi dispositivi. Conserva la chiave: serve a leggere l’archivio cifrato.</p>
+        <form class="form" id="drive-form">
+          <label>Indirizzo Apps Script <input name="endpoint" type="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></label>
+          <label>Chiave privata <input name="secret" type="password" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+          <div class="toolbar wide">
+            <button class="primary" type="submit">Collega e sincronizza</button>
+            <button type="button" id="drive-new-key">Genera chiave</button>
+            <button type="button" id="drive-show-key" aria-pressed="false">Mostra chiave</button>
+            <button type="button" id="drive-hash">Codice di verifica per Apps Script</button>
+            <button type="button" id="drive-disconnect">Scollega</button>
+          </div>
+          <input class="wide" id="drive-verifier" aria-label="Valore della proprietà HF_AUTH_SHA256" readonly hidden>
+          <p class="wide" id="drive-status" role="status"></p>
+          <div class="wide" id="drive-conflict" hidden>
+            <button type="button" id="drive-use-remote">Usa archivio Drive</button>
+            <button type="button" id="drive-use-local">Usa archivio di questo dispositivo</button>
+          </div>
+        </form>
+      </div>
+      <div class="card span2">
         <h2>Dati in questo archivio</h2>
         <p>Movimenti: <b>${counts.movements}</b> · Voci: <b>${counts.categories}</b> · Piani: <b>${counts.plans}</b> · Finanziamenti: <b>${counts.loans}</b></p>
         <p class="muted">I dati sono salvati localmente. Su iPhone l’app installata e la scheda del browser hanno archivi distinti. Conserva una copia del backup in File o sul tuo spazio personale.</p>
       </div>
     </div>`;
+  driveSync?.mount($('#drive-form'));
   const storageStatus=$('#backup-storage');
   navigator.storage?.persisted?.().then(persisted=>{
     if(persisted)storageStatus.textContent='Archiviazione persistente attiva in questa app.';
@@ -304,15 +341,20 @@ async function logicPage(ms,cats,plans,y){const yearMovements=ms.filter(x=>+x.ye
   {id:'finanziamenti',tag:'ORDINARIA',title:'Finanziamenti',summary:'Rate e stato derivano da date e ultimo movimento.',body:`<ul><li>Una rata equivale a un mese.</li><li>Le rate totali derivano da attivazione e scadenza.</li><li>Le rate pagate sono calcolate fino alla data dell'ultimo movimento disponibile.</li><li>Il filtro iniziale mostra i finanziamenti APERTI.</li></ul>`},
   {id:'formati',tag:'TRASVERSALE',title:'Segni, colori e conferme',summary:'La lettura economica determina il colore.',body:`<ul><li>Gli importi negativi usano il segno meno, mai le parentesi.</li><li>Rosso indica effetto sfavorevole; verde effetto favorevole o risparmio.</li><li>Gli importi MOVIMENTI mantengono i centesimi; i prospetti mostrano valori interi.</li><li>Ogni modifica persistente richiede conferma prima del salvataggio.</li></ul>`}
 ];$('#app').innerHTML=`<div class="logic-page"><div class="card logic-hero"><div><small>MAPPA FUNZIONALE · ${y}</small><h2>Logiche di Home Finance</h2><p>Regole operative aggiornate in base al comportamento effettivo dell'app.</p></div><div class="logic-live"><span><b>${yearMovements.length.toLocaleString('it-IT')}</b> movimenti</span><span><b>${yearRules.length.toLocaleString('it-IT')}</b> regole</span><span><b>${manual.toLocaleString('it-IT')}</b> manuali</span><span><b>${esc(last?.accounting_date||'–')}</b> ultimo dato</span></div></div><div class="card logic-flow"><button data-logic-target="flusso">Importazione</button><i>→</i><button data-logic-target="categorie">Classificazione</button><i>→</i><button data-logic-target="actual">Calcoli</button><i>→</i><button data-logic-target="cash">Eccezioni</button><i>→</i><button data-logic-target="budget">Report</button></div><div class="card logic-tools"><input id="logic-search" type="search" placeholder="Cerca una logica…"><button id="logic-expand">Espandi tutte</button><button id="logic-collapse">Comprimi tutte</button></div><div class="logic-sections">${sections.map((section,index)=>`<details class="card logic-item" id="logic-${section.id}" ${index===0?'open':''}><summary><div><span>${section.tag}</span><h3>${section.title}</h3><p>${section.summary}</p></div><b>＋</b></summary><div class="logic-body">${section.body}</div></details>`).join('')}</div></div>`;const items=[...document.querySelectorAll('.logic-item')];$('#logic-search').oninput=e=>{const q=normalizedText(e.target.value);items.forEach(item=>{const match=!q||normalizedText(item.textContent).includes(q);item.hidden=!match;if(q&&match)item.open=true})};$('#logic-expand').onclick=()=>items.filter(x=>!x.hidden).forEach(x=>x.open=true);$('#logic-collapse').onclick=()=>items.forEach(x=>x.open=false);document.querySelectorAll('[data-logic-target]').forEach(button=>button.onclick=()=>{const item=$(`#logic-${button.dataset.logicTarget}`);item.hidden=false;item.open=true;item.scrollIntoView({behavior:'smooth',block:'start'})})}
-async function exportBackup(){
+async function readArchive(){
   const transaction=db.transaction(stores);
   const entries=await Promise.all(stores.map(store=>new Promise((resolve,reject)=>{
     const request=transaction.objectStore(store).getAll();
     request.onsuccess=()=>resolve([store,request.result]);
     request.onerror=()=>reject(request.error);
   })));
+  return Object.fromEntries(entries);
+}
+
+async function exportBackup(){
+  const records=await readArchive();
   const createdAt=new Date().toISOString();
-  const data={format:'casa-finance-backup',version:1,createdAt,data:Object.fromEntries(entries)};
+  const data={format:'casa-finance-backup',version:1,createdAt,data:records};
   const link=document.createElement('a');
   const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));
   link.href=url;
@@ -327,11 +369,14 @@ function validBackupRows(rows){
   return Array.isArray(rows)&&rows.every(row=>row&&typeof row==='object'&&!Array.isArray(row)&&Object.keys(row).length>0);
 }
 
-function writeBackup(data,historical){
+function writeBackup(data,historical,expectedLocal){
   return new Promise((resolve,reject)=>{
     const transaction=db.transaction(historical?['plans']:stores,'readwrite');
     let writeError;
-    transaction.oncomplete=resolve;
+    transaction.oncomplete=()=>{
+      if(expectedLocal===undefined)driveSync?.schedule();
+      resolve();
+    };
     transaction.onabort=()=>reject(writeError||transaction.error||Error('Scrittura interrotta'));
     const write=callback=>{
       try{callback()}
@@ -346,13 +391,28 @@ function writeBackup(data,historical){
       });
       return;
     }
-    write(()=>{
+    const replace=()=>{
       for(const name of stores){
         const store=transaction.objectStore(name);
         store.clear();
         for(const row of data[name]??[])store.put(row);
       }
-    });
+    };
+    if(expectedLocal===undefined){
+      write(replace);
+      return;
+    }
+    const local=Object.fromEntries(stores.map(name=>[name,null]));
+    let pending=stores.length;
+    for(const name of stores){
+      const request=transaction.objectStore(name).getAll();
+      request.onsuccess=()=>write(()=>{
+        local[name]=request.result;
+        if(--pending)return;
+        if(JSON.stringify(local)!==expectedLocal)throw Error('L’archivio locale è cambiato durante la sincronizzazione.');
+        replace();
+      });
+    }
   });
 }
 
@@ -512,6 +572,19 @@ async function startApp(){
     await normalizeBlankBanks();
     await ensureHistoricalReportMigration();
     await ensureMovementActualMigration();
+    driveSync=window.createHomeFinanceDriveSync?.({
+      read:readArchive,
+      replace:(records,expected)=>{
+        if(!stores.every(name=>validBackupRows(records?.[name])))throw Error('Archivio Drive incompleto.');
+        return writeBackup(records,false,expected);
+      },
+      refresh:async()=>{await refreshYears();await render()},
+      confirm:async message=>{
+        if(!await confirmChange('Conferma archivio da conservare',message,'Continua'))return false;
+        try{await exportBackup();return true}
+        catch(error){toast('Prima della sostituzione serve un backup locale. '+error.message);return false}
+      },
+    });
     await refreshYears();
     await render();
     if(installedApp())void requestArchivePersistence();
