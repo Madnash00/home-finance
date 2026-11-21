@@ -1,6 +1,13 @@
 <!doctype html>
 <html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#10253f"><title>Home Finance</title><link rel="manifest" href="manifest.webmanifest"><link rel="stylesheet" href="style.css?v=36">
-<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script><script defer src="app.js?v=36"></script></head>
-<body><aside><div class="brand"><img src="icon.svg" alt="Home Finance"><span>Home Finance<small>Contabilità familiare</small></span></div><nav id="nav"></nav><div class="side"><button id="theme">◐ Tema</button><small>Dati privati · salvati nel browser</small></div></aside>
-<main><header><div><small>Home Finance / <span id="crumb">Overview</span></small><h1 id="title">Overview</h1></div><div class="actions"><label>Anno <select id="year"></select></label><button id="install" hidden>Installa app</button><button id="refresh">↻</button></div></header><section id="app"></section></main><div id="modal"></div><div id="toast"></div></body></html>
+<meta name="theme-color" content="#10253f"><title>Home Finance</title>
+<link rel="icon" type="image/png" sizes="32x32" href="branding/app-icon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="branding/app-icon-180.png">
+<link rel="manifest" href="manifest.webmanifest"><link rel="stylesheet" href="style.css?v=37">
+<script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script><script defer src="app.js?v=37"></script></head>
+<body>
+<div id="launch-screen" aria-hidden="true"><img src="branding/launch-logo.webp" alt="" width="960" height="640" fetchpriority="high"></div>
+<aside><div class="brand"><img src="branding/header-logo.webp" alt=""><span>Home Finance<small>Contabilità familiare</small></span></div><nav id="nav"></nav><div class="side"><button id="theme">◐ Tema</button><small>Dati privati · salvati nel browser</small></div></aside>
+<main><header><div><small>Home Finance / <span id="crumb">Overview</span></small><h1 id="title">Overview</h1></div><div class="actions"><label>Anno <select id="year"></select></label><button id="install" hidden>Installa app</button><button id="refresh">↻</button></div></header><section id="app"></section></main>
+<template id="app-loading"><div class="card app-loading" role="status"><img src="branding/app-icon-32.png" alt="" width="28" height="28"><span>Caricamento…</span></div></template>
+<div id="modal"></div><div id="toast"></div></body></html>

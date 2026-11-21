@@ -245,5 +245,36 @@ let lastRenderedPage=null;
 function scrollSnapshot(){return {y:window.scrollY,tables:[...document.querySelectorAll('#app .tablewrap')].map(el=>({top:el.scrollTop,left:el.scrollLeft}))}}
 function restoreScroll(snapshot){if(!snapshot)return;const restore=()=>{document.querySelectorAll('#app .tablewrap').forEach((el,i)=>{const p=snapshot.tables[i];if(p){el.scrollTop=p.top;el.scrollLeft=p.left}});window.scrollTo({top:snapshot.y,behavior:'instant'})};restore();requestAnimationFrame(restore)}
 function replaceTableMarkup(mount,markup){const old=mount.querySelector('.tablewrap'),state=old?{top:old.scrollTop,left:old.scrollLeft}:null,vertical=window.scrollY;mount.innerHTML=markup;const next=mount.querySelector('.tablewrap');if(state&&next){next.scrollTop=state.top;next.scrollLeft=state.left}requestAnimationFrame(()=>{if(next&&state){next.scrollTop=state.top;next.scrollLeft=state.left}window.scrollTo({top:vertical,behavior:'instant'})})}
-async function render(){closeSmartSelects();const keepPosition=lastRenderedPage===page,position=keepPosition?scrollSnapshot():null;lastRenderedPage=page;const version=++renderVersion;renderNav();const y=+$('#year').value,requestedPage=page,label=requestedPage===logicNav[0]?logicNav[1]:Object.values(navs).flat().find(x=>x[0]===requestedPage)?.[1];$('#title').textContent=label;$('#crumb').textContent=label;if(!keepPosition){$('#app').innerHTML='<div class="card">Caricamento…</div>';window.scrollTo({top:0,behavior:'instant'})}let[ms,cats,plans,loans]=await Promise.all([all('movements'),all('categories'),all('plans'),all('loans')]);if(y>=2027&&!cats.some(x=>+x.year===y)&&!(await all('meta')).some(x=>x.key===setupYearPrefix+y)){await cloneCategories(cats,y);cats=await all('categories')}if(version!==renderVersion)return;if(requestedPage==='saldo')await saldo(ms,cats,plans,y);else if(requestedPage==='planning')await planning(ms,cats,plans,y);else if(requestedPage==='budget')await budgetPage(ms,cats,plans,y);else if(requestedPage==='movimenti')await movements(ms,cats,y);else if(requestedPage==='categorie')await categories(cats,y);else if(requestedPage==='finanziamenti')await loansPage(loans,ms);else if(requestedPage==='logiche')await logicPage(ms,cats,plans,y);else await backupPage();if(version===renderVersion){enhanceSelects();restoreScroll(position)}}
-let installPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#install').hidden=false});$('#install').onclick=()=>installPrompt?.prompt();$('#year').onchange=render;$('#refresh').onclick=render;$('#theme').onclick=()=>document.body.classList.toggle('dark');(async()=>{db=await openDB();initQuickTooltips();await ensureRuleMigration();await ensureSearchFieldsMigration();await ensureVarieFigliMigration();await normalizeBlankBanks();await ensureHistoricalReportMigration();await ensureMovementActualMigration();await refreshYears();render();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js')})().catch(e=>$('#app').textContent=e.message);
+async function render(){closeSmartSelects();const keepPosition=lastRenderedPage===page,position=keepPosition?scrollSnapshot():null;lastRenderedPage=page;const version=++renderVersion;renderNav();const y=+$('#year').value,requestedPage=page,label=requestedPage===logicNav[0]?logicNav[1]:Object.values(navs).flat().find(x=>x[0]===requestedPage)?.[1];$('#title').textContent=label;$('#crumb').textContent=label;if(!keepPosition){$('#app').replaceChildren($('#app-loading').content.cloneNode(true));window.scrollTo({top:0,behavior:'instant'})}let[ms,cats,plans,loans]=await Promise.all([all('movements'),all('categories'),all('plans'),all('loans')]);if(y>=2027&&!cats.some(x=>+x.year===y)&&!(await all('meta')).some(x=>x.key===setupYearPrefix+y)){await cloneCategories(cats,y);cats=await all('categories')}if(version!==renderVersion)return;if(requestedPage==='saldo')await saldo(ms,cats,plans,y);else if(requestedPage==='planning')await planning(ms,cats,plans,y);else if(requestedPage==='budget')await budgetPage(ms,cats,plans,y);else if(requestedPage==='movimenti')await movements(ms,cats,y);else if(requestedPage==='categorie')await categories(cats,y);else if(requestedPage==='finanziamenti')await loansPage(loans,ms);else if(requestedPage==='logiche')await logicPage(ms,cats,plans,y);else await backupPage();if(version===renderVersion){enhanceSelects();restoreScroll(position)}}
+let installPrompt;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installPrompt=e;$('#install').hidden=false});$('#install').onclick=()=>installPrompt?.prompt();$('#year').onchange=render;$('#refresh').onclick=render;$('#theme').onclick=()=>document.body.classList.toggle('dark');
+const launchScreen=$('#launch-screen');
+const logoEntrance=Promise.allSettled(launchScreen.firstElementChild.getAnimations().map(animation=>animation.finished));
+
+async function dismissLaunchScreen(){
+  await logoEntrance;
+  launchScreen.classList.add('is-ready');
+  await Promise.allSettled(launchScreen.getAnimations().map(animation=>animation.finished));
+  launchScreen.remove();
+}
+
+async function startApp(){
+  $('#app').replaceChildren($('#app-loading').content.cloneNode(true));
+  try{
+    db=await openDB();
+    initQuickTooltips();
+    await ensureRuleMigration();
+    await ensureSearchFieldsMigration();
+    await ensureVarieFigliMigration();
+    await normalizeBlankBanks();
+    await ensureHistoricalReportMigration();
+    await ensureMovementActualMigration();
+    await refreshYears();
+    await render();
+    if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+  }catch(error){
+    $('#app').textContent=error.message;
+  }finally{
+    await dismissLaunchScreen();
+  }
+}
+startApp();
