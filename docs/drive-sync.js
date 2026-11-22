@@ -7,6 +7,9 @@
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
   const endpointPattern = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
+  const googleEndpoint = 'https://script.google.com/macros/s/AKfycbzem4G4wIoQlf4RRH7gz12bEXfXJyGYCbjYrSe0a-FEUTTvuRKswiq6DtuyOfyyYPxa/exec';
+  const googleRedirect = 'https://madnash00.github.io/home-finance/';
+  const googleAttemptKey = 'home-finance-google-attempt';
   const keyPattern = /^[a-f0-9]{64}$/;
   const hex = bytes => Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');
   const digest = async text => hex(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
@@ -48,7 +51,7 @@
   }
 
   async function remoteRequest(connection, action, fields = {}) {
-    const auth = action === 'pair_claim' ? undefined : await digest('home-finance authorization v1:' + connection.secret);
+    const auth = connection.session || !connection.secret ? undefined : await digest('home-finance authorization v1:' + connection.secret);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
@@ -57,7 +60,7 @@
         mode: 'cors',
         credentials: 'omit',
         headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-        body: JSON.stringify({ action, auth, ...fields }),
+        body: JSON.stringify({ action, auth, session: connection.session, ...fields }),
         signal: controller.signal,
       });
       if (!response.ok) throw Error('Endpoint non raggiungibile.');
@@ -69,9 +72,14 @@
           conflict: 'Drive è cambiato durante il salvataggio. La sincronizzazione riproverà.',
           storage_error: 'Apps Script non riesce ad accedere all’archivio Drive.',
           invalid_request: 'Il backend ha respinto la richiesta.',
+          google_unavailable: 'Accesso Google temporaneamente indisponibile.',
+          google_signin_failed: 'Accesso Google non riuscito. Riprova.',
+          google_account_denied: 'Scegli l’account Google autorizzato per Home Finance.',
+          google_archive_setup: 'Completa il primo accesso Google dal dispositivo già collegato a Drive.',
+          google_session_expired: 'La sessione è scaduta. Accedi di nuovo con Google.',
           pair_expired: 'Il codice è scaduto o è già stato usato. Generane uno nuovo.',
         };
-        throw Error(messages[result.error] || 'Risposta inattesa da Apps Script.');
+        throw Object.assign(Error(messages[result.error] || 'Risposta inattesa da Apps Script.'), { code: result.error });
       }
       return result;
     } finally {
@@ -104,12 +112,15 @@
   window.createHomeFinanceDriveSync = archive => {
     let state = loadConnection();
     let timer, running = false, conflict = false;
+    let googleClient, requireGoogle, showLogin;
     let status = state ? 'Connessione in attesa.' : 'Drive non collegato.';
 
     function updateStatus(message, showConflict = false) {
       status = message;
       conflict = showConflict;
       const output = document.querySelector('#drive-status');
+      const panel = document.querySelector('#drive-panel');
+      if (panel && state?.session) panel.hidden = !conflict;
       if (output) output.textContent = status;
       const choices = document.querySelector('#drive-conflict');
       if (choices) {
@@ -132,7 +143,7 @@
     }
 
     async function sync(preference) {
-      if (!state || running) return;
+      if (!state || running || requireGoogle) return;
       if (!navigator.onLine) {
         updateStatus('Offline. Le modifiche restano su questo dispositivo.', conflict);
         return;
@@ -146,7 +157,7 @@
         const localHash = await digest(local);
         const { database } = await remoteRequest(connection, 'load');
         const revision = database?.revision ?? null;
-        if (!database && connection.pendingPair) {
+        if (!database && (connection.pendingPair || connection.session)) {
           updateStatus('Archivio Drive non disponibile. Riprova dal dispositivo già collegato.');
           return;
         }
@@ -196,7 +207,12 @@
         remember(connection, { revision: savedRevision, localHash: syncedHash, pendingPair: false });
         updateStatus('Archivio sincronizzato con Drive.');
         if (direction === 'remote' && !sameData) await archive.refresh();
+        return true;
       } catch (error) {
+        if (error.code === 'google_session_expired') {
+          requireGoogle = true;
+          showLogin?.(error.message);
+        }
         updateStatus(navigator.onLine ? 'Sincronizzazione sospesa. ' + error.message : 'Offline. Le modifiche restano su questo dispositivo.', conflict);
       } finally {
         running = false;
@@ -205,7 +221,7 @@
 
     function schedule() {
       clearTimeout(timer);
-      if (state && !conflict) timer = setTimeout(() => void sync(), 2500);
+      if (state && !conflict && !requireGoogle) timer = setTimeout(() => void sync(), 2500);
     }
 
     window.addEventListener('online', schedule);
@@ -219,12 +235,92 @@
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) schedule();
     });
-    setInterval(() => { if (!document.hidden && !conflict) void sync(); }, 60000);
+    setInterval(() => { if (!document.hidden && !conflict && !requireGoogle) void sync(); }, 60000);
     schedule();
 
     return {
       schedule,
       initialPairLink,
+      get googleManaged() { return Boolean(googleClient || state?.session); },
+      async startGoogle(promptLogin) {
+        if (location.origin !== new URL(googleRedirect).origin) return true;
+        showLogin = promptLogin;
+        const query = new URLSearchParams(location.search);
+        const callback = query.has('state') && (query.has('code') || query.has('error'));
+        if (callback) history.replaceState(history.state, '', location.pathname);
+        if (state?.session && !callback && state.expires > Date.now() / 1000) {
+          const loaded = await sync();
+          if (!loaded && !conflict && !state.revision && !requireGoogle) {
+            promptLogin(status, () => location.reload());
+            return false;
+          }
+          return !requireGoogle;
+        }
+        let attempt;
+        if (callback) {
+          try { attempt = JSON.parse(sessionStorage.getItem(googleAttemptKey)); } catch {}
+          sessionStorage.removeItem(googleAttemptKey);
+        }
+        try {
+          const response = await fetch(googleEndpoint, { credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(10000) });
+          const config = await response.json();
+          if (config.service !== 'home-finance-drive') throw Error('Backend non disponibile.');
+          googleClient = config.googleClientId;
+          if (!googleClient) {
+            if (!state?.session) return true;
+            throw Error('Accesso Google temporaneamente indisponibile.');
+          }
+          if (callback) {
+            if (!attempt || query.get('state') !== attempt.nonce || Date.now() - attempt.createdAt > 900000 || !query.get('code')) {
+              throw Error('Accesso Google interrotto. Riprova.');
+            }
+            const result = await remoteRequest({ endpoint: googleEndpoint }, 'google_login', {
+              code: query.get('code'), verifier: attempt.verifier, nonce: attempt.nonce,
+              archiveKey: state?.endpoint === googleEndpoint ? state.secret : undefined,
+            });
+            if (!keyPattern.test(result.archiveKey) || typeof result.session !== 'string' || !Number.isFinite(result.expires)) {
+              throw Error('Risposta di accesso non valida.');
+            }
+            const previous = state?.endpoint === googleEndpoint && state.secret === result.archiveKey ? state : {};
+            remember({ ...previous, endpoint: googleEndpoint, secret: result.archiveKey }, {
+              session: result.session, expires: result.expires, pendingPair: !previous.revision,
+            });
+            requireGoogle = false;
+            const loaded = await sync();
+            if (!loaded && !conflict && !previous.revision && !requireGoogle) {
+              promptLogin(status, () => location.reload());
+              return false;
+            }
+            return !requireGoogle;
+          }
+          requireGoogle = true;
+          promptLogin();
+          return false;
+        } catch (error) {
+          if (!googleClient && !state?.session && !callback) return true;
+          requireGoogle = true;
+          promptLogin(error.message);
+          return false;
+        }
+      },
+      async signInGoogle() {
+        if (!googleClient) {
+          const response = await fetch(googleEndpoint, { credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(10000) });
+          googleClient = (await response.json()).googleClientId;
+          if (!googleClient) throw Error('Accesso Google temporaneamente indisponibile.');
+        }
+        const nonce = hex(crypto.getRandomValues(new Uint8Array(32)));
+        const verifier = hex(crypto.getRandomValues(new Uint8Array(32)));
+        const bytes = await crypto.subtle.digest('SHA-256', encoder.encode(verifier));
+        const challenge = toBase64(new Uint8Array(bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        sessionStorage.setItem(googleAttemptKey, JSON.stringify({ nonce, verifier, createdAt: Date.now() }));
+        const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+        url.search = new URLSearchParams({
+          client_id: googleClient, redirect_uri: googleRedirect, response_type: 'code',
+          scope: 'openid email', state: nonce, nonce, code_challenge: challenge, code_challenge_method: 'S256',
+        });
+        location.assign(url);
+      },
       async createPairLink() {
         if (!state || state.pendingPair) throw Error('Collega prima il dispositivo all’archivio Drive.');
         const connection = state;

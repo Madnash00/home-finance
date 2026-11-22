@@ -286,3 +286,5 @@ body.dark .overview-kpis .kpi-basic{box-shadow:0 2px 7px rgba(0,0,0,.14)}
 .pair-dialog input{display:block;width:100%;margin:6px 0;padding:10px;font-size:16px}
 .drive-advanced summary{cursor:pointer;padding:8px 0}
 .archive-notice .toolbar{margin:0}
+
+.google-locked #nav,.google-locked .side,.google-locked .actions,.google-locked .mobile-tabs,#drive-panel[hidden]{display:none}

@@ -320,7 +320,7 @@ async function backupPage(){
         <div class="toolbar"><input type="file" id="excel" accept=".xlsx,.xls,.xlsb" aria-label="Scegli file Excel"><button class="primary" id="do-import">Importa Excel</button></div>
         <p id="result" role="status"></p>
       </div>
-      <div class="card span2">
+      <div class="card span2" id="drive-panel">
         <h2>Sincronizzazione con Google Drive</h2>
         <p id="drive-status" role="status"></p>
         <div id="drive-conflict" class="toolbar" hidden>
@@ -355,6 +355,10 @@ async function backupPage(){
       </div>
     </div>`;
   driveSync?.mount($('#drive-form'));
+  if(driveSync?.googleManaged){
+    $('#drive-pair-send').parentElement.style.display='none';
+    $('.drive-advanced').hidden=true;
+  }
   $('#drive-pair-send').onclick=()=>showDevicePairing('send');
   $('#drive-pair-receive').onclick=()=>showDevicePairing('receive');
   const storageStatus=$('#backup-storage');
@@ -610,6 +614,20 @@ async function dismissLaunchScreen(){
   launchScreen.remove();
 }
 
+function showGoogleLogin(message='Accedi con Google per aprire il tuo archivio.',retry){
+  const root=$('#app');
+  document.body.classList.add('google-locked');
+  root.innerHTML='<div class="card" role="region" aria-label="Accesso Home Finance"><h2>Home Finance</h2><p role="status"></p><button type="button" class="primary">Continua con Google</button></div>';
+  root.querySelector('p').textContent=message;
+  const button=root.querySelector('button');
+  if(retry){button.textContent='Riprova';button.onclick=retry;return}
+  button.onclick=async()=>{
+    button.disabled=true;
+    try{await driveSync.signInGoogle()}
+    catch(error){root.querySelector('p').textContent=error.message;button.disabled=false}
+  };
+}
+
 async function startApp(){
   $('#app').replaceChildren($('#app-loading').content.cloneNode(true));
   try{
@@ -635,10 +653,11 @@ async function startApp(){
         catch(error){toast('Prima della sostituzione serve un backup locale. '+error.message);return false}
       },
     });
+    if(driveSync&&!await driveSync.startGoogle(showGoogleLogin))return;
     await refreshYears();
     await render();
     const initialPairLink=driveSync?.initialPairLink;
-    if(initialPairLink)void showDevicePairing('receive',initialPairLink);
+    if(initialPairLink&&!driveSync.googleManaged)void showDevicePairing('receive',initialPairLink);
     if(installedApp())void requestArchivePersistence();
     if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
   }catch(error){

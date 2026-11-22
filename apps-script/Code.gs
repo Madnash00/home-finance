@@ -8,7 +8,9 @@ function reply_(body) {
 }
 
 function doGet() {
-  return reply_({ service: 'home-finance-drive', version: 2 });
+  const config = googleConfig_(PropertiesService.getScriptProperties());
+  return reply_({ service: 'home-finance-drive', version: 3,
+    googleClientId: config.clientSecret && config.email ? config.clientId : null });
 }
 
 function sha256_(input) {
@@ -82,10 +84,15 @@ function doPost(event) {
   try { request = JSON.parse(body); } catch (_) { return reply_({ ok: false, error: 'invalid_request' }); }
   if (request && request.action === 'pair_claim') return pairingRequest_(request);
   const properties = PropertiesService.getScriptProperties();
-  if (!authorized_(request && request.auth, properties.getProperty('HF_AUTH_SHA256'))) {
-    return reply_({ ok: false, error: 'unauthorized' });
-  }
-  if (request.action === 'pair_create') return pairingRequest_(request);
+  if (!request || typeof request !== 'object') return reply_({ ok: false, error: 'invalid_request' });
+  const config = googleConfig_(properties);
+  if (request.action === 'google_login') return googleLogin_(request, properties, config);
+  const usesGoogle = typeof request.session === 'string';
+  const allowed = usesGoogle
+    ? validGoogleSession_(request.session, config)
+    : authorized_(request.auth, properties.getProperty('HF_AUTH_SHA256'));
+  if (!allowed) return reply_({ ok: false, error: usesGoogle ? 'google_session_expired' : 'unauthorized' });
+  if (request.action === 'pair_create' && !usesGoogle) return pairingRequest_(request);
   if (request.action !== 'load' && request.action !== 'save') return reply_({ ok: false, error: 'invalid_request' });
   if (request.action === 'save' && !validEnvelope_(request.snapshot)) return reply_({ ok: false, error: 'invalid_request' });
   const lock = LockService.getScriptLock();

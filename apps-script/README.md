@@ -18,3 +18,9 @@ In caso di modifiche concorrenti, l’app chiede quale archivio conservare e sca
 Dopo il primo collegamento, scegliere **Collega un altro dispositivo** per generare un QR e un link monouso. Sul nuovo dispositivo aprire Home Finance, scegliere **Collega questo dispositivo** e scansionare il QR. In alternativa usare il link. La PWA cifra la chiave privata con una chiave temporanea presente solo nel frammento del link. Apps Script conserva il pacchetto cifrato in cache per massimo cinque minuti e lo rimuove quando viene ritirato. Se ci sono già dati locali diversi, l'app chiede conferma prima di scaricare l'archivio Drive.
 
 Per rilasciare una modifica al backend, aggiornare la versione del deployment esistente in Apps Script per mantenere lo stesso URL.
+
+## Accesso Google
+
+Creare un client OAuth di tipo Applicazione web in un progetto Google Cloud dedicato. Impostare come URI di reindirizzamento esatto `https://madnash00.github.io/home-finance/` e usare gli scope `openid email`. In Apps Script aggiungere `GoogleAuth.gs` e le proprietà `HF_GOOGLE_CLIENT_ID`, `HF_GOOGLE_CLIENT_SECRET` e `HF_GOOGLE_OWNER` (indirizzo Gmail del proprietario). Tenere il segreto OAuth solo nelle proprietà dello script. La chiamata al servizio token di Google richiede lo scope `script.external_request`.
+
+Prima di attivare la nuova interfaccia sui dispositivi, completare il primo accesso dal browser già collegato all’archivio. Il backend usa la chiave già conservata dal browser dopo aver verificato sia il profilo Google autorizzato sia la chiave. Il file cifrato esistente rimane l’archivio comune. Gli accessi successivi usano una sessione Home Finance di 30 giorni per browser.
