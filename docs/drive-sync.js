@@ -1,6 +1,10 @@
 (() => {
   'use strict';
 
+  const primaryEndpoint = 'https://script.google.com/macros/s/AKfycbzem4G4wIoQlf4RRH7gz12bEXfXJyGYCbjYrSe0a-FEUTTvuRKswiq6DtuyOfyyYPxa/exec';
+  const ownerAttemptKey = 'home-finance-owner-attempt';
+  const ownerCallback = location.hash.startsWith('#owner=') ? location.hash : null;
+  if (ownerCallback) history.replaceState(history.state, '', location.pathname + location.search);
   const storageKey = 'home-finance-drive-v1';
   const initialPairLink = location.hash.startsWith('#pair=') ? location.href : null;
   if (initialPairLink) history.replaceState(history.state, '', location.pathname + location.search);
@@ -48,7 +52,7 @@
   }
 
   async function remoteRequest(connection, action, fields = {}) {
-    const auth = action === 'pair_claim' ? undefined : await digest('home-finance authorization v1:' + connection.secret);
+    const auth = !connection.secret ? undefined : await digest('home-finance authorization v1:' + connection.secret);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
@@ -69,6 +73,8 @@
           conflict: 'Drive è cambiato durante il salvataggio. La sincronizzazione riproverà.',
           storage_error: 'Apps Script non riesce ad accedere all’archivio Drive.',
           invalid_request: 'Il backend ha respinto la richiesta.',
+          owner_login_expired: 'Conferma scaduta. Riprova.',
+          owner_archive_setup: 'Apri una volta Home Finance dal browser che contiene già l’archivio collegato a Drive.',
           pair_expired: 'Il codice è scaduto o è già stato usato. Generane uno nuovo.',
         };
         throw Error(messages[result.error] || 'Risposta inattesa da Apps Script.');
@@ -104,6 +110,7 @@
   window.createHomeFinanceDriveSync = archive => {
     let state = loadConnection();
     let timer, running = false, conflict = false;
+    let ownerGate, ownerWindow;
     let status = state ? 'Connessione in attesa.' : 'Drive non collegato.';
 
     function updateStatus(message, showConflict = false) {
@@ -196,6 +203,7 @@
         remember(connection, { revision: savedRevision, localHash: syncedHash, pendingPair: false });
         updateStatus('Archivio sincronizzato con Drive.');
         if (direction === 'remote' && !sameData) await archive.refresh();
+        return true;
       } catch (error) {
         updateStatus(navigator.onLine ? 'Sincronizzazione sospesa. ' + error.message : 'Offline. Le modifiche restano su questo dispositivo.', conflict);
       } finally {
@@ -222,8 +230,75 @@
     setInterval(() => { if (!document.hidden && !conflict) void sync(); }, 60000);
     schedule();
 
+    async function finishOwnerAccess(callback) {
+      const [attempt, token] = callback.slice('#owner='.length).split('.');
+      if (!keyPattern.test(attempt) || !keyPattern.test(token) || attempt !== localStorage.getItem(ownerAttemptKey)) {
+        throw Error('Conferma non riconosciuta. Riprova da Home Finance.');
+      }
+      localStorage.removeItem(ownerAttemptKey);
+      const result = await remoteRequest({ endpoint: primaryEndpoint }, 'owner_signin', {
+        attempt, token, archiveKey: state?.endpoint === primaryEndpoint ? state.secret : undefined,
+      });
+      if (!keyPattern.test(result.archiveKey)) throw Error('Risposta di accesso non valida.');
+      const existing = state?.endpoint === primaryEndpoint && state.secret === result.archiveKey ? state : {};
+      remember({ ...existing, endpoint: primaryEndpoint, secret: result.archiveKey }, { pendingPair: !existing.revision, ownerReady: true });
+      return Boolean(await sync() || conflict);
+    }
+
     return {
       schedule,
+      get ownerManaged() { return Boolean(ownerGate || state?.ownerReady); },
+      async startOwnerAccess(prompt) {
+        if (location.origin !== 'https://madnash00.github.io') return true;
+        if (state?.ownerReady && !ownerCallback) {
+          await sync();
+          return true;
+        }
+        try {
+          const response = await fetch(primaryEndpoint, { credentials: 'omit', cache: 'no-store', signal: AbortSignal.timeout(8000) });
+          ownerGate = (await response.json()).ownerGate;
+          if (!endpointPattern.test(ownerGate)) {
+            ownerGate = null;
+            return true;
+          }
+          if (ownerCallback) {
+            if (await finishOwnerAccess(ownerCallback)) return true;
+            prompt(status, () => location.reload());
+            return false;
+          }
+          if (state?.endpoint === primaryEndpoint && !state.pendingPair) {
+            await remoteRequest(state, 'owner_enable', { archiveKey: state.secret });
+            remember(state, { ownerReady: true });
+            await sync();
+            return true;
+          }
+          prompt();
+          return false;
+        } catch (error) {
+          if (!ownerGate && !ownerCallback) return true;
+          prompt(error.message);
+          return false;
+        }
+      },
+      beginOwnerAccess(onResult) {
+        if (!ownerGate) throw Error('Accesso temporaneamente non disponibile. Ricarica Home Finance.');
+        const attempt = hex(crypto.getRandomValues(new Uint8Array(32)));
+        localStorage.setItem(ownerAttemptKey, attempt);
+        const url = new URL(ownerGate);
+        url.searchParams.set('owner_signin', attempt);
+        const receive = async event => {
+          if (!/^https:\/\/(?:[a-z0-9-]+\.)*googleusercontent\.com$/.test(event.origin) ||
+              typeof event.data !== 'string' || !event.data.startsWith('#owner=' + attempt + '.')) return;
+          window.removeEventListener('message', receive);
+          ownerWindow?.close();
+          try { onResult(await finishOwnerAccess(event.data) ? null : status); }
+          catch (error) { onResult(error.message); }
+        };
+        window.addEventListener('message', receive);
+        setTimeout(() => window.removeEventListener('message', receive), 180000);
+        ownerWindow = window.open(url, 'home-finance-access', 'popup,width=450,height=650');
+        if (!ownerWindow) location.assign(url);
+      },
       initialPairLink,
       async createPairLink() {
         if (!state || state.pendingPair) throw Error('Collega prima il dispositivo all’archivio Drive.');
