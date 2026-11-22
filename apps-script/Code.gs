@@ -7,8 +7,59 @@ function reply_(body) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function doGet() {
-  return reply_({ service: 'home-finance-drive', version: 2 });
+const HOME_FINANCE_URL = 'https://madnash00.github.io/home-finance/';
+const HOME_FINANCE_ORIGIN = 'https://madnash00.github.io';
+const OWNER_TOKEN = /^[a-f0-9]{64}$/;
+
+function doGet(event) {
+  const properties = PropertiesService.getScriptProperties();
+  const attempt = event && event.parameter && event.parameter.owner_signin;
+  if (attempt === undefined) {
+    return reply_({ service: 'home-finance-drive', version: 3,
+      ownerGate: properties.getProperty('HF_OWNER_GATE_URL') || null });
+  }
+  const active = Session.getActiveUser().getEmail();
+  const owner = Session.getEffectiveUser().getEmail();
+  if (!active || active.toLowerCase() !== owner.toLowerCase() || !OWNER_TOKEN.test(attempt)) {
+    return HtmlService.createHtmlOutput('<p>Accesso riservato al proprietario di Home Finance.</p>');
+  }
+  const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  CacheService.getScriptCache().put('owner-login:' + sha256_(token), attempt, 120);
+  const fragment = '#owner=' + attempt + '.' + token;
+  return HtmlService.createHtmlOutput(
+    '<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<meta name="referrer" content="no-referrer"><title>Accesso Home Finance</title>' +
+    '<p>Accesso confermato.</p><a target="_top" href="' + HOME_FINANCE_URL + fragment + '">Torna a Home Finance</a>' +
+    '<script>try{if(top.opener){top.opener.postMessage(' + JSON.stringify(fragment) + ',' +
+    JSON.stringify(HOME_FINANCE_ORIGIN) + ');}}catch(e){}</script>'
+  );
+}
+
+function finishOwnerSignin_(request, properties) {
+  if (typeof request.token !== 'string' || !OWNER_TOKEN.test(request.token) ||
+      typeof request.attempt !== 'string' || !OWNER_TOKEN.test(request.attempt)) {
+    return reply_({ ok: false, error: 'invalid_request' });
+  }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return reply_({ ok: false, error: 'busy' });
+  try {
+    const cache = CacheService.getScriptCache();
+    const key = 'owner-login:' + sha256_(request.token);
+    if (cache.get(key) !== request.attempt) return reply_({ ok: false, error: 'owner_login_expired' });
+    cache.remove(key);
+    let secret = properties.getProperty('HF_OWNER_ARCHIVE_KEY');
+    if (!secret) {
+      const candidate = request.archiveKey;
+      const valid = typeof candidate === 'string' && OWNER_TOKEN.test(candidate) &&
+        authorized_(sha256_('home-finance authorization v1:' + candidate), properties.getProperty('HF_AUTH_SHA256'));
+      if (!valid) return reply_({ ok: false, error: 'owner_archive_setup' });
+      secret = candidate;
+      properties.setProperty('HF_OWNER_ARCHIVE_KEY', secret);
+    }
+    return reply_({ ok: true, archiveKey: secret });
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function sha256_(input) {
@@ -82,8 +133,18 @@ function doPost(event) {
   try { request = JSON.parse(body); } catch (_) { return reply_({ ok: false, error: 'invalid_request' }); }
   if (request && request.action === 'pair_claim') return pairingRequest_(request);
   const properties = PropertiesService.getScriptProperties();
+  if (request && request.action === 'owner_signin') return finishOwnerSignin_(request, properties);
   if (!authorized_(request && request.auth, properties.getProperty('HF_AUTH_SHA256'))) {
     return reply_({ ok: false, error: 'unauthorized' });
+  }
+  if (request.action === 'owner_enable') {
+    const secret = request.archiveKey;
+    if (typeof secret !== 'string' || !OWNER_TOKEN.test(secret) ||
+        sha256_('home-finance authorization v1:' + secret) !== request.auth) {
+      return reply_({ ok: false, error: 'unauthorized' });
+    }
+    properties.setProperty('HF_OWNER_ARCHIVE_KEY', secret);
+    return reply_({ ok: true });
   }
   if (request.action === 'pair_create') return pairingRequest_(request);
   if (request.action !== 'load' && request.action !== 'save') return reply_({ ok: false, error: 'invalid_request' });

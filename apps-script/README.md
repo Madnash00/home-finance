@@ -18,3 +18,9 @@ In caso di modifiche concorrenti, l’app chiede quale archivio conservare e sca
 Dopo il primo collegamento, scegliere **Collega un altro dispositivo** per generare un QR e un link monouso. Sul nuovo dispositivo aprire Home Finance, scegliere **Collega questo dispositivo** e scansionare il QR. In alternativa usare il link. La PWA cifra la chiave privata con una chiave temporanea presente solo nel frammento del link. Apps Script conserva il pacchetto cifrato in cache per massimo cinque minuti e lo rimuove quando viene ritirato. Se ci sono già dati locali diversi, l'app chiede conferma prima di scaricare l'archivio Drive.
 
 Per rilasciare una modifica al backend, aggiornare la versione del deployment esistente in Apps Script per mantenere lo stesso URL.
+
+## Accesso del proprietario senza Google Cloud
+
+Pubblicare la stessa versione dello script su due deployment. L’API dati conserva il suo URL e i suoi controlli di accesso. Creare un secondo deployment **App web → Esegui come proprietario → Solo io** e salvare il suo URL in `HF_OWNER_GATE_URL`. L’accesso verifica anche che l’utente attivo coincida con il proprietario dello script. Home Finance rimane su GitHub Pages.
+
+Aprire l’aggiornamento dal browser che è già collegato all’archivio. Quel browser registra la chiave esistente dopo che l’API ha verificato la credenziale e la corrispondenza della chiave. Il file cifrato resta su Drive. Un profilo nuovo può usare **Continua con Google**. La conferma temporanea scade entro due minuti e viene consumata una sola volta. Il profilo conserva la connessione così le aperture successive usano Drive direttamente.
