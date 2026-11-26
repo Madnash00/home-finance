@@ -44,7 +44,7 @@ export function openPairing(sync, { mode, initialLink, onConnected }) {
 
   if (mode === 'send') {
     dialog.querySelector('h2').textContent = 'Collega un altro dispositivo';
-    find('instructions').textContent = 'Apri Home Finance sull’altro dispositivo e scegli Collega questo dispositivo, poi Scansiona QR.';
+    find('instructions').textContent = 'Apri Home Finance sull’altro dispositivo e scegli Collega da un altro dispositivo o Collega questo dispositivo, poi Scansiona QR.';
     status.textContent = 'Generazione del codice…';
     void (async () => {
       try {
