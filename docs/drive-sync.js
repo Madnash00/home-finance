@@ -286,6 +286,9 @@
         localStorage.setItem(ownerAttemptKey, attempt);
         const url = new URL(ownerGate);
         url.searchParams.set('owner_signin', attempt);
+        // Select the Google session before Android opens the private Apps Script URL.
+        const chooser = new URL('https://accounts.google.com/AccountChooser');
+        chooser.searchParams.set('continue', url.href);
         const receive = async event => {
           if (!/^https:\/\/(?:[a-z0-9-]+\.)*googleusercontent\.com$/.test(event.origin) ||
               typeof event.data !== 'string' || !event.data.startsWith('#owner=' + attempt + '.')) return;
@@ -296,8 +299,8 @@
         };
         window.addEventListener('message', receive);
         setTimeout(() => window.removeEventListener('message', receive), 180000);
-        ownerWindow = window.open(url, 'home-finance-access', 'popup,width=450,height=650');
-        if (!ownerWindow) location.assign(url);
+        ownerWindow = window.open(chooser.href, 'home-finance-access', 'popup,width=450,height=650');
+        if (!ownerWindow) location.assign(chooser.href);
       },
       initialPairLink,
       async createPairLink() {
