@@ -1,10 +1,13 @@
-const CACHE='home-finance-v41';
+const CACHE='home-finance-v42';
 const FILES=[
-  './','index.html','style.css?v=41','app.js?v=41','drive-sync.js?v=41','device-pairing.js?v=41','vendor/qr-tools.js','manifest.webmanifest',
+  './','index.html','style.css?v=42','app.js?v=42','drive-sync.js?v=42','device-pairing.js?v=42','vendor/qr-tools.js','manifest.webmanifest',
   'branding/launch-logo.webp','branding/header-logo.webp','branding/app-icon-32.png',
   'branding/app-icon-180.png','branding/app-icon-192.png','branding/app-icon-512.png'
 ];
-self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
+self.addEventListener('install',e=>e.waitUntil(
+  caches.open(CACHE).then(c=>c.addAll(FILES.map(file=>new Request(file,{cache:'reload'}))))
+    .then(()=>self.skipWaiting())
+));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(
   keys.filter(key=>key.startsWith('home-finance-v')&&key!==CACHE).map(key=>caches.delete(key))
 ))));
@@ -17,6 +20,13 @@ self.addEventListener('fetch',e=>{
     const scope=new URL(self.registration.scope);
     const appEntry=request.mode==='navigate'&&
       (url.pathname===scope.pathname||url.pathname===scope.pathname+'index.html');
-    return await cache.match(appEntry?'index.html':request)||fetch(request);
+    if(appEntry){
+      try{
+        const response=await fetch(request,{cache:'no-cache'});
+        if(response.ok)return response;
+      }catch{}
+      return await cache.match('index.html')||Response.error();
+    }
+    return await cache.match(request)||fetch(request);
   })());
 });

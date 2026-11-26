@@ -269,7 +269,7 @@ async function requestArchivePersistence(){
 
 async function showDevicePairing(mode,initialLink){
   try{
-    const {openPairing}=await import('./device-pairing.js?v=41');
+    const {openPairing}=await import('./device-pairing.js?v=42');
     openPairing(driveSync,{mode,initialLink,onConnected:result=>{
       if(result.conflict)void navigateTo('backup');
       else{
@@ -628,13 +628,16 @@ function showOwnerAccess(message='Conferma il tuo account per aprire l’archivi
         if(error)root.querySelector('p').textContent=error;
         else location.reload();
       });
-      root.querySelector('p').textContent='Completa l’accesso nella finestra Google.';
+      root.querySelector('p').textContent='Scegli l’account Google che usi per Home Finance, poi torna all’app.';
     }catch(error){root.querySelector('p').textContent=error.message}
   };
 }
 
 async function startApp(){
   $('#app').replaceChildren($('#app-loading').content.cloneNode(true));
+  if('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  }
   try{
     db=await openDB();
     initQuickTooltips();
@@ -664,7 +667,6 @@ async function startApp(){
     const initialPairLink=driveSync?.initialPairLink;
     if(initialPairLink&&!driveSync.ownerManaged)void showDevicePairing('receive',initialPairLink);
     if(installedApp())void requestArchivePersistence();
-    if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
   }catch(error){
     $('#app').innerHTML='<div class="card" role="alert"><h2>Archivio non accessibile</h2><p></p><button type="button">Riprova</button></div>';
     $('#app p').textContent=error.message;
