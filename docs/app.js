@@ -269,8 +269,9 @@ async function requestArchivePersistence(){
 
 async function showDevicePairing(mode,initialLink){
   try{
-    const {openPairing}=await import('./device-pairing.js?v=42');
+    const {openPairing}=await import('./device-pairing.js?v=43');
     openPairing(driveSync,{mode,initialLink,onConnected:result=>{
+      document.body.classList.remove('owner-locked');
       if(result.conflict)void navigateTo('backup');
       else{
         void navigateTo('saldo');
@@ -352,6 +353,7 @@ async function backupPage(){
         <h2>Dati in questo archivio</h2>
         <p>Movimenti: <b>${counts.movements}</b> · Voci: <b>${counts.categories}</b> · Piani: <b>${counts.plans}</b> · Finanziamenti: <b>${counts.loans}</b></p>
         <p class="muted">I dati sono salvati localmente. Su iPhone l’app installata e la scheda del browser hanno archivi distinti. Conserva una copia del backup in File o sul tuo spazio personale.</p>
+        <button type="button" id="drive-pair-fallback" hidden>Collega un altro dispositivo</button>
       </div>
     </div>`;
   driveSync?.mount($('#drive-form'));
@@ -359,6 +361,8 @@ async function backupPage(){
     $('#drive-pair-send').parentElement.hidden=true;
     $('.drive-advanced').hidden=true;
     $('#drive-panel').hidden=$('#drive-conflict').hidden;
+    $('#drive-pair-fallback').hidden=$('#drive-pair-send').hidden;
+    $('#drive-pair-fallback').onclick=()=>showDevicePairing('send');
   }
   $('#drive-pair-send').onclick=()=>showDevicePairing('send');
   $('#drive-pair-receive').onclick=()=>showDevicePairing('receive');
@@ -618,8 +622,9 @@ async function dismissLaunchScreen(){
 function showOwnerAccess(message='Conferma il tuo account per aprire l’archivio Home Finance.',retry){
   document.body.classList.add('owner-locked');
   const root=$('#app');
-  root.innerHTML='<div class="card"><h2>Accedi a Home Finance</h2><p role="status"></p><button type="button" class="primary">Continua con Google</button></div>';
+  root.innerHTML='<div class="card"><h2>Accedi a Home Finance</h2><p role="status"></p><button type="button" class="primary">Continua con Google</button> <button type="button" data-owner-pair>Collega da un altro dispositivo</button></div>';
   root.querySelector('p').textContent=message;
+  root.querySelector('[data-owner-pair]').onclick=()=>showDevicePairing('receive');
   const button=root.querySelector('button');
   if(retry){button.textContent='Riprova';button.onclick=retry;return}
   button.onclick=()=>{
@@ -661,11 +666,14 @@ async function startApp(){
         catch(error){toast('Prima della sostituzione serve un backup locale. '+error.message);return false}
       },
     });
-    if(driveSync&&!await driveSync.startOwnerAccess(showOwnerAccess))return;
+    const initialPairLink=driveSync?.initialPairLink;
+    if(driveSync&&!await driveSync.startOwnerAccess(showOwnerAccess)){
+      if(initialPairLink)void showDevicePairing('receive',initialPairLink);
+      return;
+    }
     await refreshYears();
     await render();
-    const initialPairLink=driveSync?.initialPairLink;
-    if(initialPairLink&&!driveSync.ownerManaged)void showDevicePairing('receive',initialPairLink);
+    if(initialPairLink)void showDevicePairing('receive',initialPairLink);
     if(installedApp())void requestArchivePersistence();
   }catch(error){
     $('#app').innerHTML='<div class="card" role="alert"><h2>Archivio non accessibile</h2><p></p><button type="button">Riprova</button></div>';

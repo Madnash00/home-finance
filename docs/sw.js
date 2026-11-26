@@ -1,6 +1,6 @@
-const CACHE='home-finance-v42';
+const CACHE='home-finance-v43';
 const FILES=[
-  './','index.html','style.css?v=42','app.js?v=42','drive-sync.js?v=42','device-pairing.js?v=42','vendor/qr-tools.js','manifest.webmanifest',
+  './','index.html','style.css?v=43','app.js?v=43','drive-sync.js?v=43','device-pairing.js?v=43','vendor/qr-tools.js','manifest.webmanifest',
   'branding/launch-logo.webp','branding/header-logo.webp','branding/app-icon-32.png',
   'branding/app-icon-180.png','branding/app-icon-192.png','branding/app-icon-512.png'
 ];
